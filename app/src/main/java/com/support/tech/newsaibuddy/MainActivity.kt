@@ -48,7 +48,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
     }
 }
 
-@Preview(showBackground = true, showSystemUi = true)
+@Preview(showSystemUi = true)
 @Composable
 fun GreetingPreview() {
     NewsAIBuddyTheme {
