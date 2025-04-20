@@ -80,4 +80,8 @@ dependencies {
     implementation(libs.converter.moshi)
     implementation(libs.coil.compose)
     implementation(libs.transport.runtime)
+
+    implementation("com.google.accompanist:accompanist-pager:0.28.0")
+    // or if you want the indicators too:
+    implementation("com.google.accompanist:accompanist-pager-indicators:0.28.0")
 }
