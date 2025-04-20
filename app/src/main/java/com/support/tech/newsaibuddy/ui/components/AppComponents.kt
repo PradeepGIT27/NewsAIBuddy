@@ -2,11 +2,13 @@ package com.support.tech.newsaibuddy.ui.components
 
 //noinspection SuspiciousImport
 import android.R
+import android.provider.Settings.System.putString
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +17,10 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,17 +33,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.support.tech.newsaibuddy.data.entity.Article
 import com.support.tech.newsaibuddy.ui.theme.appColor40
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 @Composable
-fun NewsCardView(articles: List<Article>) {
+fun NewsCardView(articles: List<Article>, navController: NavController) {
     LazyColumn(
         userScrollEnabled = true,
         modifier = Modifier
@@ -64,10 +73,11 @@ fun NewsCardView(articles: List<Article>) {
                 Column {
                     Text(
                         text = article.title.toString(),
-                        style = TextStyle(fontSize = 18.sp,
+                        style = TextStyle(
+                            fontSize = 18.sp,
                             color = Color.Black,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            )
+                        )
                     )
                     Spacer(modifier = Modifier.padding(4.dp))
                     Text(text = article.description.toString())
@@ -83,10 +93,67 @@ fun NewsCardView(articles: List<Article>) {
                                 contentDescription = "",
                                 error = painterResource(id = R.drawable.stat_notify_error),
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.clip(RectangleShape),
+                                modifier = Modifier
+                                    .clip(RectangleShape)
+                                    .wrapContentWidth(),
                             )
                             Spacer(modifier = Modifier.padding(4.dp))
                             Text(text = article.content.toString())
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            val uriHandler = LocalUriHandler.current
+                            Row {
+                                Text(
+                                    text = "Reference Link : ",
+                                    style = TextStyle(
+                                        fontSize = 14.sp,
+                                        color = Color.Gray,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Light
+                                    )
+                                )
+                                BasicText(
+                                    text = androidx.compose.ui.text.AnnotatedString(
+                                        article.source!!.name.toString()
+                                    ),
+                                    style = TextStyle(
+                                        fontSize = 14.sp,
+                                        color = Color.Blue,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Light
+                                    ),
+                                    modifier = Modifier.clickable {
+//                                        uriHandler.openUri(article.url.toString())
+                                        // IMPORTANT: Encode the URL before passing as argument
+                                        val encodedUrl = URLEncoder.encode(
+                                            article.url.toString(),
+                                            StandardCharsets.UTF_8.toString()
+                                        )
+//                                        navController.currentBackStackEntry?.arguments?.putString("url", article.url.toString())
+//                                        navController.navigate("referenceScreen")
+
+                                        navController.navigate("referenceScreen/${encodedUrl}")
+
+
+
+//                                        navController.navigate(
+//                                            "referenceScreen/{url}" //Just modify your route accordingly
+//                                                .replace(
+//                                                    oldValue = "{url}",
+//                                                    newValue = article.url.toString()
+//                                                )
+//                                        )
+                                    }
+                                )
+                            }
+
+                            //Display Author name
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            Text(
+                                text = "Author : ${article.author}",
+                                style = TextStyle(
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Light
+                                )
+                            )
                         }
                     }
                 }

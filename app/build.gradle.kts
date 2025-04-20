@@ -71,7 +71,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.navigation.compose)
 
-//    implementation(libs.gson)
     implementation(libs.converter.gson)
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
@@ -80,8 +79,4 @@ dependencies {
     implementation(libs.converter.moshi)
     implementation(libs.coil.compose)
     implementation(libs.transport.runtime)
-
-    implementation("com.google.accompanist:accompanist-pager:0.28.0")
-    // or if you want the indicators too:
-    implementation("com.google.accompanist:accompanist-pager-indicators:0.28.0")
 }

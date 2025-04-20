@@ -26,15 +26,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.ui.components.AppLoader
 import com.support.tech.newsaibuddy.ui.components.EmptyStateComponent
 import com.support.tech.newsaibuddy.ui.components.NewsCardView
+import com.support.tech.newsaibuddy.ui.theme.appColor40
 import com.support.tech.newsaibuddy.ui.viewmodel.NewsViewmodel
 import kotlinx.coroutines.launch
 
 @Composable
 fun NewsScreen(
+    navController: NavController,
     newsViewModel: NewsViewmodel = hiltViewModel()
 ) {
     val newsCategory = listOf(
@@ -59,7 +62,7 @@ fun NewsScreen(
             contentColor = Color.Gray,
             indicator = { tabPositions ->
                 TabRowDefaults.PrimaryIndicator(
-                    color = Color.Black,
+                    color = appColor40,
                     modifier = Modifier
                         .tabIndicatorOffset(tabPositions[selectedTabIndex])
                         .fillMaxWidth()
@@ -113,7 +116,7 @@ fun NewsScreen(
                     if (articles.isEmpty()) {
                         EmptyStateComponent()
                     } else {
-                        NewsCardView(articles)
+                        NewsCardView(articles, navController)
                     }
                 }
 
