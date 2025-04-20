@@ -63,10 +63,15 @@ fun NewsCardView(articles: List<Article>) {
             ) {
                 Column {
                     Text(
-                        text = it.toString(),
-                        style = TextStyle(fontSize = 24.sp)
+                        text = article.title.toString(),
+                        style = TextStyle(fontSize = 18.sp,
+                            color = Color.Black,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
                     )
+                    Spacer(modifier = Modifier.padding(4.dp))
                     Text(text = article.description.toString())
+                    Spacer(modifier = Modifier.padding(4.dp))
                     AnimatedVisibility(expanded) {
                         Column {
                             AsyncImage(
@@ -80,7 +85,8 @@ fun NewsCardView(articles: List<Article>) {
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.clip(RectangleShape),
                             )
-                            Text(text = article.publishedAt.toString())
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            Text(text = article.content.toString())
                         }
                     }
                 }

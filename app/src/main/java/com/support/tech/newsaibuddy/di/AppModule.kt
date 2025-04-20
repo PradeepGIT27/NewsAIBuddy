@@ -26,7 +26,6 @@ class AppModule {
     @Singleton
     fun providesRetrofit(): Retrofit {
         val httpLoggingInterceptor = HttpLoggingInterceptor().apply {
-
             level = HttpLoggingInterceptor.Level.BASIC
         }
 
@@ -38,10 +37,8 @@ class AppModule {
             readTimeout(60, TimeUnit.SECONDS)
         }
 
-
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory()).build()
-
 
         return Retrofit.Builder()
             .baseUrl(AppConstants.NEWS_URL)
