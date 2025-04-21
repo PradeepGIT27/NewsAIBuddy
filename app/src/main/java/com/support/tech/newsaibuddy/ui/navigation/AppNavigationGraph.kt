@@ -1,6 +1,6 @@
 package com.support.tech.newsaibuddy.ui.navigation
 
-import ReferenceScreen
+import com.support.tech.newsaibuddy.ui.screens.reference.ReferenceScreen
 import androidx.compose.runtime.Composable
 
 import androidx.navigation.compose.NavHost

@@ -1,3 +1,5 @@
+package com.support.tech.newsaibuddy.ui.screens.reference
+
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.util.Log
@@ -122,7 +124,7 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                         webView = this // Assign the created webview to the state variable
                     }
                 },
-                update = { view ->
+                update = {
                     // Update logic if needed when composable recomposes (e.g., URL changes)
                     // In this basic case, we load URL only in factory
                     Log.d("WebViewScreen", "WebView update called")

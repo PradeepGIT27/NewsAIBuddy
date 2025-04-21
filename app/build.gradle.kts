@@ -61,6 +61,7 @@ dependencies {
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
 
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
@@ -68,10 +69,9 @@ dependencies {
     implementation(libs.androidx.ui.tooling)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.hilt.navigation.compose)
 
-    implementation(libs.converter.gson)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
     implementation(libs.moshi)

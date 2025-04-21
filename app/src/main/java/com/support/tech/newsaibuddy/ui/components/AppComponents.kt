@@ -2,7 +2,6 @@ package com.support.tech.newsaibuddy.ui.components
 
 //noinspection SuspiciousImport
 import android.R
-import android.provider.Settings.System.putString
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,9 +17,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -56,7 +52,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
     ) {
         items(articles.size) {
-            var article = articles[it]
+            val article = articles[it]
             var expanded by remember {
                 mutableStateOf(article.expanded)
             }
@@ -100,7 +96,6 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                             Spacer(modifier = Modifier.padding(4.dp))
                             Text(text = article.content.toString())
                             Spacer(modifier = Modifier.padding(4.dp))
-                            val uriHandler = LocalUriHandler.current
                             Row {
                                 Text(
                                     text = "Reference Link : ",
@@ -120,26 +115,12 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Light
                                     ),
                                     modifier = Modifier.clickable {
-//                                        uriHandler.openUri(article.url.toString())
-                                        // IMPORTANT: Encode the URL before passing as argument
+//                                        uriHandler.openUri(article.url.toString()) -> To Open Url in default browser
                                         val encodedUrl = URLEncoder.encode(
                                             article.url.toString(),
                                             StandardCharsets.UTF_8.toString()
                                         )
-//                                        navController.currentBackStackEntry?.arguments?.putString("url", article.url.toString())
-//                                        navController.navigate("referenceScreen")
-
                                         navController.navigate("referenceScreen/${encodedUrl}")
-
-
-
-//                                        navController.navigate(
-//                                            "referenceScreen/{url}" //Just modify your route accordingly
-//                                                .replace(
-//                                                    oldValue = "{url}",
-//                                                    newValue = article.url.toString()
-//                                                )
-//                                        )
                                     }
                                 )
                             }

@@ -47,7 +47,7 @@ fun NewsScreen(
     val pagerState = rememberPagerState(initialPage = 0) { pageCount }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    val coroutineScope = rememberCoroutineScope() // Create a CoroutineScope
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(pagerState.currentPage) {
         selectedTabIndex = pagerState.currentPage
