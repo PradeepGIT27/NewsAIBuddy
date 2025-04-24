@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.Icon
-import androidx.compose.material.MaterialTheme
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
@@ -55,7 +53,7 @@ fun NewsScreen(
     )
     val pageCount = newsCategory.size
     val pagerState = rememberPagerState(initialPage = 0) { pageCount }
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by remember { mutableIntStateOf(pagerState.currentPage) }
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -64,10 +62,10 @@ fun NewsScreen(
         fetchNewsIfNeeded(selectedTabIndex, newsCategory, newsViewModel)
     }
 
-    Scaffold(   floatingActionButton = {
+    Scaffold(floatingActionButton = {
         FloatingActionButton(
             onClick = {
-               navController.navigate("chatBotScreen")
+                navController.navigate("chatBotScreen")
             },
             containerColor = appColor80,
             contentColor = Color.White

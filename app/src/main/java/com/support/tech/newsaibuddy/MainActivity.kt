@@ -3,10 +3,8 @@ package com.support.tech.newsaibuddy
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.support.tech.newsaibuddy.ui.navigation.AppNavigationGraph
 import com.support.tech.newsaibuddy.ui.theme.NewsAIBuddyTheme
@@ -22,14 +20,9 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    AppEntryPoint()
+                    AppNavigationGraph()
                 }
             }
         }
     }
-}
-
-@Composable
-fun AppEntryPoint() {
-    AppNavigationGraph()
 }
