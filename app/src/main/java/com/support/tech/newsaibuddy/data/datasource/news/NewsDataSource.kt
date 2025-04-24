@@ -1,4 +1,4 @@
-package com.support.tech.newsaibuddy.data.datasource
+package com.support.tech.newsaibuddy.data.datasource.news
 
 import com.support.tech.newsaibuddy.data.entity.NewsResponse
 import retrofit2.Response

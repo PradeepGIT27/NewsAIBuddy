@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp.dev)
     alias(libs.plugins.hilt.android)
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -21,6 +22,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+            buildConfigField("String", "BOT_KEY", "\"AIzaSyB5R17tJqTp0np6IQoDDoKXMIWFeDuak_0\"")        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -38,6 +42,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -71,6 +76,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
 
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
@@ -79,4 +85,7 @@ dependencies {
     implementation(libs.converter.moshi)
     implementation(libs.coil.compose)
     implementation(libs.transport.runtime)
+
+    implementation(libs.generativeai)
+    implementation(libs.kotlinx.serialization.json)
 }

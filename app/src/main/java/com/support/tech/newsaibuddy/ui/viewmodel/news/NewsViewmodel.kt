@@ -1,8 +1,7 @@
-package com.support.tech.newsaibuddy.ui.viewmodel
+package com.support.tech.newsaibuddy.ui.viewmodel.news
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.support.tech.newsaibuddy.data.AppConstants
 import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.data.entity.NewsResponse
 import com.support.tech.newsaibuddy.ui.repository.NewsRepository
@@ -57,14 +56,14 @@ class NewsViewmodel @Inject constructor(private val newsRepository: NewsReposito
         getNewsByCategory("business")
     }
 
-    private fun getNewsByCountry() {
-        viewModelScope.launch(Dispatchers.IO) {
-            newsRepository.getTopHeadlinesBasedOnCountry(AppConstants.COUNTRY, AppConstants.API_KEY)
-                .collectLatest { newsResponse ->
-                    //_news.value = newsResponse
-                }
-        }
-    }
+//    private fun getNewsByCountry() {
+//        viewModelScope.launch(Dispatchers.IO) {
+//            newsRepository.getTopHeadlinesBasedOnCountry(AppConstants.COUNTRY, AppConstants.API_KEY)
+//                .collectLatest { _ ->
+//                    //_news.value = newsResponse
+//                }
+//        }
+//    }
 
     fun getNewsByCategory(category: String) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -1,7 +1,7 @@
 package com.support.tech.newsaibuddy.ui.repository
 
 import com.support.tech.newsaibuddy.data.api.ResourceState
-import com.support.tech.newsaibuddy.data.datasource.NewsDataSource
+import com.support.tech.newsaibuddy.data.datasource.news.NewsDataSource
 import com.support.tech.newsaibuddy.data.entity.NewsResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
