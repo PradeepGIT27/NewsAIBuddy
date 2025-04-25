@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -56,6 +57,7 @@ fun NewsScreen(
     var selectedTabIndex by remember { mutableIntStateOf(pagerState.currentPage) }
 
     val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(pagerState.currentPage) {
         selectedTabIndex = pagerState.currentPage
@@ -135,7 +137,13 @@ fun NewsScreen(
                         if (articles.isEmpty()) {
                             EmptyStateComponent()
                         } else {
-                            NewsCardView(articles, navController)
+                            NewsCardView(
+                                articles, navController,
+                                isRefreshing = isRefreshing,
+                                onRefresh = {
+                                    isRefreshing = false
+                                    newsViewModel.getNewsByCategory(newsCategory[selectedTabIndex].lowercase())
+                                })
                         }
                     }
 

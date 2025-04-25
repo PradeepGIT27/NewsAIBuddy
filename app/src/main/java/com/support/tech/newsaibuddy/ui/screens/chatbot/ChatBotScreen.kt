@@ -1,6 +1,5 @@
 package com.support.tech.newsaibuddy.ui.screens.chatbot
 
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -17,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -61,7 +60,6 @@ fun ChatBotScreen(
     chatViewModel: ChatBotViewModel = hiltViewModel()
 
 ) {
-
     val chatUiState by chatViewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -70,10 +68,14 @@ fun ChatBotScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = appColor80),
-                title = { Text("Chat Bot",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                    maxLines = 1) },
+                title = {
+                    Text(
+                        "Chat Bot",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
@@ -138,7 +140,7 @@ fun ChatBubbleItem(
     }
 
     val bubbleShape = if (isModelMessage) {
-        RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
+        RoundedCornerShape(topStart = 4.dp, topEnd = 20.dp, 20.dp, 20.dp)
     } else {
         RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
     }
@@ -169,17 +171,14 @@ fun ChatBubbleItem(
                         .padding(all = 8.dp)
                 )
             }
-            BoxWithConstraints {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = backgroundColor),
-                    shape = bubbleShape,
-                    modifier = Modifier.widthIn(0.dp, maxWidth * 0.9f)
-                ) {
-                    Text(
-                        text = chatMessage.text,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = backgroundColor),
+                shape = bubbleShape,
+            ) {
+                Text(
+                    text = chatMessage.text,
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
     }
@@ -228,7 +227,7 @@ fun MessageInput(
                     .weight(0.15f)
             ) {
                 Icon(
-                    Icons.Default.Send,
+                    Icons.AutoMirrored.Default.Send,
                     contentDescription = stringResource(R.string.action_send),
                     modifier = Modifier
                 )
