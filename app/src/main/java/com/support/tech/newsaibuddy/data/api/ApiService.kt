@@ -1,6 +1,6 @@
 package com.support.tech.newsaibuddy.data.api
 
-import com.support.tech.newsaibuddy.data.AppConstants
+import com.support.tech.newsaibuddy.BuildConfig
 import com.support.tech.newsaibuddy.data.entity.NewsResponse
 import retrofit2.Response
 import retrofit2.http.GET
@@ -14,7 +14,7 @@ interface ApiService {
         @Query("apiKey") apiKey: String
     ): Response<NewsResponse>
 
-    @Headers("X-Api-Key: ${AppConstants.API_KEY}")
+    @Headers("X-Api-Key: ${BuildConfig.NEWS_API_KEY}")
     @GET("v2/top-headlines")
     suspend fun getTopHeadlinesBasedOnCategory(
         @Query("category") country: String,
