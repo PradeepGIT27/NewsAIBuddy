@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -10,6 +12,12 @@ plugins {
 android {
     namespace = "com.support.tech.newsaibuddy"
     compileSdk = 35
+
+    val file = rootProject.file("local.properties")
+    val properties = Properties()
+    properties.load(file.inputStream())
+    val botKey = properties.getProperty("botKey")
+    val newsKey = properties.getProperty("newsKey")
 
     defaultConfig {
         applicationId = "com.support.tech.newsaibuddy"
@@ -24,7 +32,9 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
-            buildConfigField("String", "BOT_KEY", "\"AIzaSyB5R17tJqTp0np6IQoDDoKXMIWFeDuak_0\"")        }
+            buildConfigField("String", "BOT_KEY", botKey)
+            buildConfigField("String", "NEWS_API_KEY", newsKey)
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
