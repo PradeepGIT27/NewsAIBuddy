@@ -42,13 +42,17 @@ import com.support.tech.newsaibuddy.ui.theme.appColor40
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+// Composable function to display a list of news articles in a card view
 @Composable
 fun NewsCardView(articles: List<Article>, navController: NavController) {
+    // LazyColumn to efficiently display a scrollable list of items
     LazyColumn(
         userScrollEnabled = true,
         modifier = Modifier
             .padding(16.dp)
             .fillMaxSize(),
+        // Center the items horizontally within the LazyColumn
+
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
     ) {
         items(articles.size) {
@@ -56,12 +60,14 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
             var expanded by remember {
                 mutableStateOf(article.expanded)
             }
+            // Box to create a card-like container for each article
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(color = Color.White, shape = RoundedCornerShape(10.dp))
                     .padding(horizontal = 16.dp, vertical = 16.dp)
                     .clickable {
+                        // Toggle the expanded state of the article when clicked
                         article.expanded = !expanded
                         expanded = article.expanded
                     }
@@ -69,6 +75,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                 Column {
                     Text(
                         text = article.title.toString(),
+                        // Style for the article title
                         style = TextStyle(
                             fontSize = 18.sp,
                             color = Color.Black,
@@ -78,9 +85,12 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                     Spacer(modifier = Modifier.padding(4.dp))
                     Text(text = article.description.toString())
                     Spacer(modifier = Modifier.padding(4.dp))
+                    // AnimatedVisibility to show/hide additional details when expanded
                     AnimatedVisibility(expanded) {
                         Column {
+                            // AsyncImage to load and display the article image
                             AsyncImage(
+                                // Build the image request with the article's image URL
                                 model = ImageRequest.Builder(LocalContext.current)
                                     .data(article.urlToImage)
                                     .crossfade(true)
@@ -90,14 +100,17 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                                 error = painterResource(id = R.drawable.stat_notify_error),
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
+                                    // Clip the image to a rectangular shape
                                     .clip(RectangleShape)
                                     .wrapContentWidth(),
                             )
                             Spacer(modifier = Modifier.padding(4.dp))
                             Text(text = article.content.toString())
                             Spacer(modifier = Modifier.padding(4.dp))
+                            // Row to display the reference link
                             Row {
                                 Text(
+                                    // Label for the reference link
                                     text = "Reference Link : ",
                                     style = TextStyle(
                                         fontSize = 14.sp,
@@ -106,9 +119,11 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                                     )
                                 )
                                 BasicText(
+                                    // Display the source name as a clickable link
                                     text = androidx.compose.ui.text.AnnotatedString(
                                         article.source!!.name.toString()
                                     ),
+                                    // Style for the reference link
                                     style = TextStyle(
                                         fontSize = 14.sp,
                                         color = Color.Blue,
@@ -116,10 +131,12 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                                     ),
                                     modifier = Modifier.clickable {
 //                                        uriHandler.openUri(article.url.toString()) -> To Open Url in default browser
+                                        // Encode the URL before navigating
                                         val encodedUrl = URLEncoder.encode(
                                             article.url.toString(),
                                             StandardCharsets.UTF_8.toString()
                                         )
+                                        // Navigate to the reference screen with the encoded URL
                                         navController.navigate("referenceScreen/${encodedUrl}")
                                     }
                                 )
@@ -129,6 +146,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                             Spacer(modifier = Modifier.padding(4.dp))
                             Text(
                                 text = "Author : ${article.author}",
+                                // Style for the author name
                                 style = TextStyle(
                                     fontSize = 12.sp,
                                     color = Color.Gray,
@@ -144,27 +162,34 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
     }
 }
 
+// Composable function to display a loading indicator
 @Composable
 fun AppLoader() {
+    // Box to center the CircularProgressIndicator
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = androidx.compose.ui.Alignment.Center
     ) {
+        // CircularProgressIndicator to show loading progress
         CircularProgressIndicator(
             color = appColor40,
             modifier = Modifier
+                // Wrap the content width and height
                 .wrapContentWidth()
                 .wrapContentHeight(),
         )
     }
 }
 
+// Composable function to display an empty state message
 @Composable
 fun EmptyStateComponent() {
+    // Box to center the Text message
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = androidx.compose.ui.Alignment.Center
     ) {
+        // Text to display when no news is available
         Text(text = "No news available")
     }
 }

@@ -19,22 +19,39 @@ package com.support.tech.newsaibuddy.ui.viewmodel.chatbot
 import androidx.compose.runtime.toMutableStateList
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 
+/**
+ * UI state for the chat screen.
+ *
+ * @param messages The list of messages in the chat.
+ */
 class ChatUiState(
     messages: List<ChatBotMessage> = emptyList()
 ) {
+    // Private mutable list to store the messages
     private val _messages: MutableList<ChatBotMessage> = messages.toMutableStateList()
+    // Public immutable list of messages exposed to the UI
     val messages: List<ChatBotMessage> = _messages
 
+    /**
+     * Adds a new message to the chat.
+     *
+     * @param msg The message to add.
+     */
     fun addMessage(msg: ChatBotMessage) {
         _messages.add(msg)
     }
 
+    /**
+     * Replaces the last pending message with a non-pending version.
+     * This is typically used when a message sent by the user is confirmed by the server.
+     */
     fun replaceLastPendingMessage() {
         val lastMessage = _messages.lastOrNull()
-        lastMessage?.let {
+        lastMessage?.let { // If there is a last message
             val newMessage = lastMessage.apply { isPending = false }
             _messages.removeAt(_messages.lastIndex)
             _messages.add(newMessage)
         }
     }
 }
+

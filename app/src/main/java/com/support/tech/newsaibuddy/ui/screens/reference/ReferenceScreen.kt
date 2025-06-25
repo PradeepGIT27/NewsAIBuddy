@@ -29,12 +29,17 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.ui.theme.appColor80
 
+// Opt-in for ExperimentalMaterial3Api as some Material 3 components might be experimental
 @OptIn(ExperimentalMaterial3Api::class)
+// Suppress lint warning for enabling JavaScript in WebView, which is necessary for many websites
 @SuppressLint("SetJavaScriptEnabled") // Suppress lint warning for JavaScript enabling
 @Composable
 fun ReferenceScreen(navController: NavController, urlToLoad: String) {
+    // State to hold the WebView instance
     var webView: WebView? by remember { mutableStateOf(null) }
+    // State to track if the page is currently loading
     var isLoading by remember { mutableStateOf(true) }
+    // State to hold any web resource error encountered
     var webViewError by remember { mutableStateOf<WebResourceError?>(null) }
 
     // Handle back press: first try navigating back in WebView, then pop screen
@@ -47,9 +52,12 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
     }
 
     Scaffold(
+        // Top app bar configuration
         topBar = {
             TopAppBar(
+                // Set the background color of the top app bar
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = appColor80),
+                // Title of the app bar (currently empty, could be dynamic)
                 title = { Text("", maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
@@ -63,11 +71,15 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
             )
         }
     ) { paddingValues ->
+        // Box layout to overlay loading indicator and error message on top of WebView
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // AndroidView to embed the native Android WebView
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
+                    // Create and configure the WebView instance
                     WebView(context).apply {
+                        // Set layout parameters to fill the parent
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -75,6 +87,7 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                         settings.javaScriptEnabled = true // Enable JavaScript
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                // Called when a page starts loading
                                 super.onPageStarted(view, url, favicon)
                                 isLoading = true
                                 webViewError = null // Reset error on new page start
@@ -82,6 +95,7 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
+                                // Called when a page finishes loading
                                 super.onPageFinished(view, url)
                                 isLoading = false
                                 Log.d("WebViewScreen", "Page loading finished: $url")
@@ -93,6 +107,7 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                                 request: WebResourceRequest?,
                                 error: WebResourceError?
                             ) {
+                                // Called when an error occurs during page loading
                                 super.onReceivedError(view, request, error)
                                 if (request?.isForMainFrame == true) {
                                     isLoading = false
@@ -108,6 +123,7 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                                 view: WebView?,
                                 request: WebResourceRequest?
                             ): Boolean {
+                                // Intercept URL loading to keep navigation within the WebView
                                 val requestedUrl = request?.url?.toString()
                                 Log.d("WebViewScreen", "Intercepting URL load: $requestedUrl")
                                 if (requestedUrl != null) {
@@ -117,8 +133,9 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                                 return false // Let the WebView handle it (or system if unhandled scheme)
                             }
                         }
+                        // Set WebChromeClient for features like JavaScript alerts, progress, etc.
                         webChromeClient = WebChromeClient() // Needed for some JS features like alerts
-
+                        // Log the URL being loaded and initiate loading
                         Log.d("WebViewScreen", "Loading URL in WebView: $urlToLoad")
                         loadUrl(urlToLoad) // Load the initial URL
                         webView = this // Assign the created webview to the state variable
@@ -140,11 +157,12 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                     modifier = Modifier.align(Alignment.Center))
             }
 
-            // Show error message
+            // Show error message if a webViewError occurred
             webViewError?.let { error ->
                 Column(
                     modifier = Modifier.fillMaxSize().padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    // Center the error content vertically and horizontally
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text("Failed to load page", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)

@@ -17,7 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +54,11 @@ import com.support.tech.newsaibuddy.ui.theme.appColorBrown80
 import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ChatBotViewModel
 import kotlinx.coroutines.launch
 
+/**
+ * Composable function for the Chat Bot screen.
+ * @param navController The NavController to handle navigation.
+ * @param chatViewModel The ViewModel for the chat bot.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatBotScreen(
@@ -61,10 +66,12 @@ fun ChatBotScreen(
     chatViewModel: ChatBotViewModel = hiltViewModel()
 
 ) {
-
+    // Collect the UI state from the ViewModel
     val chatUiState by chatViewModel.uiState.collectAsState()
+    // Remember the lazy list state for scrolling
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
 
     Scaffold(
         topBar = {
@@ -109,6 +116,11 @@ fun ChatBotScreen(
     }
 }
 
+/**
+ * Composable function to display the list of chat messages.
+ * @param chatMessages The list of chat messages to display.
+ * @param listState The LazyListState to control the scrolling of the list.
+ */
 @Composable
 fun ChatList(
     chatMessages: List<ChatBotMessage>,
@@ -124,13 +136,19 @@ fun ChatList(
     }
 }
 
+/**
+ * Composable function to display a single chat bubble item.
+ * @param chatMessage The chat message to display.
+ */
 @Composable
 fun ChatBubbleItem(
     chatMessage: ChatBotMessage
 ) {
+    // Determine if the message is from the model or an error
     val isModelMessage = chatMessage.participant == ChatBotMessageSender.MODEL ||
             chatMessage.participant == ChatBotMessageSender.ERROR
 
+    // Determine the background color based on the message participant
     val backgroundColor = when (chatMessage.participant) {
         ChatBotMessageSender.MODEL -> appColor80
         ChatBotMessageSender.USER -> appColorBrown80
@@ -138,12 +156,14 @@ fun ChatBubbleItem(
     }
 
     val bubbleShape = if (isModelMessage) {
+        // Shape for model messages
         RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
     } else {
+        // Shape for user messages
         RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
     }
 
-    val horizontalAlignment = if (isModelMessage) {
+    val horizontalAlignment = if (isModelMessage) { // Align model messages to the start, user messages to the end
         Alignment.Start
     } else {
         Alignment.End
@@ -161,6 +181,7 @@ fun ChatBubbleItem(
 //            modifier = Modifier.padding(bottom = 4.dp)
 //        )
         Spacer(modifier = Modifier.height(4.dp))
+        // Row to display the message content and a progress indicator if pending
         Row {
             if (chatMessage.isPending) {
                 CircularProgressIndicator(
@@ -185,6 +206,11 @@ fun ChatBubbleItem(
     }
 }
 
+/**
+ * Composable function for the message input field.
+ * @param onSendMessage Callback function to send a message.
+ * @param resetScroll Callback function to reset the scroll position.
+ */
 @Composable
 fun MessageInput(
     onSendMessage: (String) -> Unit,
@@ -192,6 +218,7 @@ fun MessageInput(
 ) {
     var userMessage by rememberSaveable { mutableStateOf("") }
 
+    // Elevated card for the message input area
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,6 +228,7 @@ fun MessageInput(
                 .padding(16.dp)
                 .fillMaxWidth()
         ) {
+            // Text field for user input
             OutlinedTextField(
                 value = userMessage,
                 label = { Text(stringResource(R.string.chat_label)) },
@@ -213,6 +241,7 @@ fun MessageInput(
                     .fillMaxWidth()
                     .weight(0.85f)
             )
+            // Button to send the message
             IconButton(
                 onClick = {
                     if (userMessage.isNotBlank()) {
@@ -228,7 +257,7 @@ fun MessageInput(
                     .weight(0.15f)
             ) {
                 Icon(
-                    Icons.Default.Send,
+                    Icons.Default.PlayArrow,
                     contentDescription = stringResource(R.string.action_send),
                     modifier = Modifier
                 )
