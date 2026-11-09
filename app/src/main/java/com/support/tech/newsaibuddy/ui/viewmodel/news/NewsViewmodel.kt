@@ -3,6 +3,7 @@ package com.support.tech.newsaibuddy.ui.viewmodel.news
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.support.tech.newsaibuddy.data.api.ResourceState
+import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.domain.model.NewsCategory
 import com.support.tech.newsaibuddy.domain.usecase.GetNewsByCategoryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -52,5 +53,25 @@ class NewsViewmodel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun toggleBookmark(article: Article) {
+        _uiState.update { current ->
+            val isSaved = current.savedArticles.any { it.url == article.url }
+            val updatedSaved = if (isSaved) {
+                current.savedArticles.filterNot { it.url == article.url }
+            } else {
+                current.savedArticles + article
+            }
+            current.copy(savedArticles = updatedSaved)
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun toggleSearchActive() {
+        _uiState.update { it.copy(isSearchActive = !it.isSearchActive, searchQuery = "") }
     }
 }

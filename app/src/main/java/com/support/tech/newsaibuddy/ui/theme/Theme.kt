@@ -2,6 +2,7 @@ package com.support.tech.newsaibuddy.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -12,34 +13,31 @@ import androidx.compose.ui.platform.LocalContext
 
 // Define the dark color scheme for the application.
 private val DarkColorScheme = darkColorScheme(
-    primary = appColor80,
-    secondary = appColor80,
-    tertiary = appColor80
+    primary = RustPrimary,
+    secondary = RustAccent,
+    background = Color(0xFF121212),
+    surface = Color(0xFF1E1E1E),
+    onPrimary = Color.White,
+    onBackground = Color(0xFFE5E7EB),
+    onSurface = Color(0xFFE5E7EB)
 )
 
 // Define the light color scheme for the application.
 private val LightColorScheme = lightColorScheme(
-    primary = appColor40,
-    secondary = appColor40,
-    tertiary = appColor40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+    primary = RustPrimary,
+    secondary = RustAccent,
+    background = ScreenBackground,
+    surface = CardBackground,
     onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    onBackground = TextPrimary,
+    onSurface = TextPrimary
 )
 
 // Composable function to apply the NewsAIBuddy theme.
 @Composable
 fun NewsAIBuddyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     // Determine the color scheme to use based on the system settings and app preferences.
