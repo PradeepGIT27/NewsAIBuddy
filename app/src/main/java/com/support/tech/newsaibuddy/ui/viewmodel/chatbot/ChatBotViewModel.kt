@@ -1,5 +1,6 @@
 package com.support.tech.newsaibuddy.ui.viewmodel.chatbot
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.client.generativeai.GenerativeModel
@@ -13,7 +14,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * ViewModel for handling chat interactions.
@@ -66,22 +69,36 @@ class ChatBotViewModel @Inject constructor(
             var responseText: String? = null
             var lastError: Exception? = null
 
-            // Retry up to 3 times in case of temporary 503 high-demand spikes
-            for (attempt in 1..3) {
+            // Retry up to 2 times for transient 503 / server / timeout errors
+            val maxRetries = 2
+            for (attempt in 0..maxRetries) {
                 try {
-                    val response = chat.sendMessage(userMessage)
-                    responseText = response.text
-                    lastError = null
-                    break
+                    // Timeout after 60 seconds to allow model generation while preventing infinite loading spinners
+                    val response = withTimeoutOrNull(60000L.milliseconds) {
+                        chat.sendMessage(userMessage)
+                    }
+                    if (response != null) {
+                        responseText = response.text
+                        break
+                    } else {
+                        lastError = Exception("Request timed out. Please try again.")
+                    }
                 } catch (e: Exception) {
-                    lastError = e
-                    val errorMsg = e.message.orEmpty()
-                    val isTemporary = errorMsg.contains("503") ||
-                            errorMsg.contains("high demand", ignoreCase = true) ||
-                            errorMsg.contains("UNAVAILABLE", ignoreCase = true)
+                    val isTimeout = e is java.util.concurrent.CancellationException ||
+                            e.cause is java.util.concurrent.CancellationException ||
+                            e.message?.contains("Timed out", ignoreCase = true) == true
+                    lastError = if (isTimeout) {
+                        Exception("Request timed out. Please try again.")
+                    } else {
+                        e
+                    }
+                    Log.e("ChatBotViewModel", "Attempt ${attempt + 1} failed sending message", e)
 
-                    if (isTemporary && attempt < 3) {
-                        kotlinx.coroutines.delay(attempt * 1500L)
+                    val errorMsg = e.message.orEmpty()
+                    val isTransient = isTimeout || errorMsg.contains("503") || errorMsg.contains("500") || errorMsg.contains("UNAVAILABLE", ignoreCase = true)
+                    if (isTransient && attempt < maxRetries) {
+                        kotlinx.coroutines.delay((1000L * (attempt + 1)).milliseconds)
+                        continue
                     } else {
                         break
                     }
@@ -102,18 +119,20 @@ class ChatBotViewModel @Inject constructor(
                     current.copy(messages = resolvedMessages + modelMessage)
                 } else {
                     val rawMsg = lastError?.localizedMessage.orEmpty()
-                    val userFriendlyMsg = when {
-                        rawMsg.contains("503") || rawMsg.contains("high demand", ignoreCase = true) ->
-                            "The Gemini model is currently experiencing high demand. Please try sending your message again in a moment."
-                        rawMsg.contains("404") || rawMsg.contains("NOT_FOUND", ignoreCase = true) ->
-                            "Model not found. Please check model configuration."
-                        rawMsg.contains("API_KEY_INVALID", ignoreCase = true) || rawMsg.contains("403") ->
-                            "Invalid or unauthorized API key. Please check your Gemini API key in local.properties."
-                        else -> rawMsg.ifBlank { "Something went wrong. Please try again." }
+                    val formattedMsg = when {
+                        rawMsg.contains("503") || rawMsg.contains("UNAVAILABLE", ignoreCase = true) ->
+                            "The AI service is temporarily overloaded (HTTP 503). Please try again in a moment."
+                        rawMsg.contains("500") || rawMsg.contains("INTERNAL", ignoreCase = true) ->
+                            "The AI service encountered a temporary server error. Please try again."
+                        rawMsg.contains("Timed out", ignoreCase = true) ->
+                            "Request timed out. Please try again."
+                        rawMsg.contains("UnknownException") || rawMsg.contains("Something unexpected happened") ->
+                            "Something went wrong with the AI service. Please try again."
+                        rawMsg.isBlank() -> "Something went wrong. Please try again."
+                        else -> rawMsg
                     }
-
                     val errorMessage = ChatBotMessage(
-                        text = userFriendlyMsg,
+                        text = formattedMsg,
                         participant = ChatBotMessageSender.ERROR
                     )
                     current.copy(messages = resolvedMessages + errorMessage)
