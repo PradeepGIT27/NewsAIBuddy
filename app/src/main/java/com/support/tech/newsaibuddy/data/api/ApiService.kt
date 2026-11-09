@@ -1,37 +1,30 @@
 package com.support.tech.newsaibuddy.data.api
 
-import com.support.tech.newsaibuddy.data.AppConstants
-import com.support.tech.newsaibuddy.data.entity.NewsResponse
+import com.support.tech.newsaibuddy.data.remote.dto.NewsResponseDto
 import retrofit2.Response
 import retrofit2.http.GET
-import retrofit2.http.Headers
 import retrofit2.http.Query
 
 /**
- * Interface defining the API endpoints for fetching news data.
+ * Interface defining the API endpoints for fetching news data from NewsAPI.
+ * Authentication is automatically injected by [com.support.tech.newsaibuddy.data.remote.interceptor.ApiKeyInterceptor].
  */
 interface ApiService {
     /**
      * Fetches top headlines based on a specific country.
-     * @param country The country code (e.g., "us", "in").
-     * @param apiKey Your NewsAPI key.
-     * @return A Retrofit Response containing NewsResponse data.
+     * @param country The country code (e.g. "us", "in").
      */
     @GET("v2/top-headlines")
     suspend fun getTopHeadlinesBasedOnCountry(
-        @Query("country") country: String,
-        @Query("apiKey") apiKey: String
-    ): Response<NewsResponse>
+        @Query("country") country: String
+    ): Response<NewsResponseDto>
 
     /**
      * Fetches top headlines based on a specific category.
-     * The API key is injected via a header.
-     * @param country The category name (e.g., "business", "technology"). Note: The parameter name is "country" due to API consistency, but it represents a category.
-     * @return A Retrofit Response containing NewsResponse data.
+     * @param category The category name (e.g. "business", "technology").
      */
-    @Headers("X-Api-Key: ${AppConstants.API_KEY}")
     @GET("v2/top-headlines")
     suspend fun getTopHeadlinesBasedOnCategory(
-        @Query("category") country: String,
-    ): Response<NewsResponse>
+        @Query("category") category: String
+    ): Response<NewsResponseDto>
 }

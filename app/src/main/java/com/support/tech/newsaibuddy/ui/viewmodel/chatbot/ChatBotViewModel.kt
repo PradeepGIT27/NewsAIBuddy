@@ -1,6 +1,5 @@
 package com.support.tech.newsaibuddy.ui.viewmodel.chatbot
 
-import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.client.generativeai.GenerativeModel
@@ -12,27 +11,19 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * ViewModel for handling chat interactions.
- *
- * This ViewModel manages the state of the chat, including the history of messages
- * and the current UI state. It uses a [GenerativeModel] to interact with the AI
- * and sends/receives messages.
- *
- * @property generativeModel The AI model used for generating responses.
+ * Manages conversation state with Google Gemini AI model using immutable StateFlow updates.
  */
 @HiltViewModel
-class ChatBotViewModel @Inject constructor( generativeModel: GenerativeModel) : ViewModel() {
-    // A mutable list to store chat messages. This is not directly exposed to the UI.
-    private val _chatMessages = mutableStateListOf<ChatBotMessage>()
-    // An immutable view of the chat messages for the UI to observe.
-    val chatMessages: List<ChatBotMessage> = _chatMessages
+class ChatBotViewModel @Inject constructor(
+    generativeModel: GenerativeModel
+) : ViewModel() {
 
-    // Initializes the chat session with a predefined history.
-    // This sets up an initial conversation context for the AI.
     private val chat = generativeModel.startChat(
         history = listOf(
             content(role = "user") { text("Hello, ChatBot.") },
@@ -40,72 +31,93 @@ class ChatBotViewModel @Inject constructor( generativeModel: GenerativeModel) : 
         )
     )
 
-    // MutableStateFlow to hold the current UI state of the chat.
-    // It's initialized with the chat history, mapping AI content to ChatBotMessage objects.
-    // ChatUiState is a data class that likely encapsulates the list of messages and
-    // potentially other UI-related state.
-    private val _uiState: MutableStateFlow<ChatUiState> =
-        MutableStateFlow(ChatUiState(chat.history.map { content ->
-            // Map the initial messages
-            ChatBotMessage(
-                text = content.parts.first().asTextOrNull() ?: "",
-                participant = if (content.role == "user") ChatBotMessageSender.USER else ChatBotMessageSender.MODEL,
-                isPending = false
-            )
-        }))
-    // Exposes the UI state as an immutable StateFlow for the UI to observe changes.
-    val uiState: StateFlow<ChatUiState> =
-        _uiState.asStateFlow()
-
+    private val _uiState = MutableStateFlow(
+        ChatUiState(
+            messages = chat.history.map { content ->
+                ChatBotMessage(
+                    text = content.parts.first().asTextOrNull() ?: "",
+                    participant = if (content.role == "user") ChatBotMessageSender.USER else ChatBotMessageSender.MODEL,
+                    isPending = false
+                )
+            }
+        )
+    )
+    val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     /**
-     * Sends a message from the user to the chat.
-     *
-     * This function adds the user's message to the UI as a pending message,
-     * then sends it to the AI model and updates the UI with the model's response.
-     * It handles potential errors during the API call.
-     *
-     * @param userMessage The text of the message sent by the user.
+     * Sends a message from the user to the Gemini AI model.
+     * Employs Unidirectional Data Flow by appending a pending message first,
+     * awaiting model completion, and updating with the model response or error.
      */
     fun sendMessage(userMessage: String) {
-        // Add a pending message
-        _uiState.value.addMessage(
-            ChatBotMessage(
-                text = userMessage,
-                participant = ChatBotMessageSender.USER,
-                isPending = true
-            )
+        if (userMessage.isBlank()) return
+
+        val pendingUserMessage = ChatBotMessage(
+            text = userMessage,
+            participant = ChatBotMessageSender.USER,
+            isPending = true
         )
 
+        _uiState.update { current ->
+            current.copy(messages = current.messages + pendingUserMessage)
+        }
+
         viewModelScope.launch {
-            // Launch a coroutine in the ViewModel's scope to handle the asynchronous API call.
-            try {
-                // Send the user's message to the AI model.
-                val response = chat.sendMessage(userMessage)
+            var responseText: String? = null
+            var lastError: Exception? = null
 
-                // Replace the pending user message with a confirmed one (isPending = false).
-                _uiState.value.replaceLastPendingMessage()
+            // Retry up to 3 times in case of temporary 503 high-demand spikes
+            for (attempt in 1..3) {
+                try {
+                    val response = chat.sendMessage(userMessage)
+                    responseText = response.text
+                    lastError = null
+                    break
+                } catch (e: Exception) {
+                    lastError = e
+                    val errorMsg = e.message.orEmpty()
+                    val isTemporary = errorMsg.contains("503") ||
+                            errorMsg.contains("high demand", ignoreCase = true) ||
+                            errorMsg.contains("UNAVAILABLE", ignoreCase = true)
 
-                // If the model provides a response text, add it to the chat UI.
-                response.text?.let { modelResponse ->
-                    _uiState.value.addMessage(
-                        ChatBotMessage(
-                            text = modelResponse,
-                            participant = ChatBotMessageSender.MODEL,
-                            isPending = false
-                        )
-                    )
+                    if (isTemporary && attempt < 3) {
+                        kotlinx.coroutines.delay(attempt * 1500L)
+                    } else {
+                        break
+                    }
                 }
-            } catch (e: Exception) {
-                // If an error occurs during the API call:
-                // 1. Replace the pending user message.
-                _uiState.value.replaceLastPendingMessage()
-                _uiState.value.addMessage(
-                    ChatBotMessage(
-                        text = e.localizedMessage?.toString() ?: "Something went wrong",
+            }
+
+            _uiState.update { current ->
+                val resolvedMessages = current.messages.map { msg ->
+                    if (msg.id == pendingUserMessage.id) msg.copy(isPending = false) else msg
+                }
+
+                if (responseText != null) {
+                    val modelMessage = ChatBotMessage(
+                        text = responseText,
+                        participant = ChatBotMessageSender.MODEL,
+                        isPending = false
+                    )
+                    current.copy(messages = resolvedMessages + modelMessage)
+                } else {
+                    val rawMsg = lastError?.localizedMessage.orEmpty()
+                    val userFriendlyMsg = when {
+                        rawMsg.contains("503") || rawMsg.contains("high demand", ignoreCase = true) ->
+                            "The Gemini model is currently experiencing high demand. Please try sending your message again in a moment."
+                        rawMsg.contains("404") || rawMsg.contains("NOT_FOUND", ignoreCase = true) ->
+                            "Model not found. Please check model configuration."
+                        rawMsg.contains("API_KEY_INVALID", ignoreCase = true) || rawMsg.contains("403") ->
+                            "Invalid or unauthorized API key. Please check your Gemini API key in local.properties."
+                        else -> rawMsg.ifBlank { "Something went wrong. Please try again." }
+                    }
+
+                    val errorMessage = ChatBotMessage(
+                        text = userFriendlyMsg,
                         participant = ChatBotMessageSender.ERROR
                     )
-                )
+                    current.copy(messages = resolvedMessages + errorMessage)
+                }
             }
         }
     }

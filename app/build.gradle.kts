@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp.dev)
     alias(libs.plugins.hilt.android)
-    id("org.jetbrains.kotlin.plugin.serialization")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -15,9 +15,16 @@ android {
 
     val file = rootProject.file("local.properties")
     val properties = Properties()
-    properties.load(file.inputStream())
-    val botKey = properties.getProperty("botKey")
-    val newsKey = properties.getProperty("newsKey")
+    if (file.exists()) {
+        properties.load(file.inputStream())
+    }
+    fun formatKey(key: String?): String {
+        if (key.isNullOrBlank()) return "\"\""
+        val trimmed = key.trim()
+        return if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) trimmed else "\"$trimmed\""
+    }
+    val botKey = formatKey(properties.getProperty("botKey"))
+    val newsKey = formatKey(properties.getProperty("newsKey"))
 
     defaultConfig {
         applicationId = "com.support.tech.newsaibuddy"
@@ -27,16 +34,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "BOT_KEY", botKey)
+        buildConfigField("String", "NEWS_API_KEY", newsKey)
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
-            buildConfigField("String", "BOT_KEY", botKey)
-            buildConfigField("String", "NEWS_API_KEY", newsKey)
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -28,6 +28,6 @@ data class ChatBotMessage(
     val id: String = UUID.randomUUID().toString(),
     val text: String = "",
     val participant: ChatBotMessageSender = ChatBotMessageSender.USER,
-    var isPending: Boolean = false,
+    val isPending: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )

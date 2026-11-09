@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.support.tech.newsaibuddy.data.entity.Article
+import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.ui.theme.appColor40
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -58,7 +58,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
         items(articles.size) {
             val article = articles[it]
             var expanded by remember {
-                mutableStateOf(article.expanded)
+                mutableStateOf(false)
             }
             // Box to create a card-like container for each article
             Box(
@@ -68,8 +68,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                     .padding(horizontal = 16.dp, vertical = 16.dp)
                     .clickable {
                         // Toggle the expanded state of the article when clicked
-                        article.expanded = !expanded
-                        expanded = article.expanded
+                        expanded = !expanded
                     }
             ) {
                 Column {
@@ -121,7 +120,7 @@ fun NewsCardView(articles: List<Article>, navController: NavController) {
                                 BasicText(
                                     // Display the source name as a clickable link
                                     text = androidx.compose.ui.text.AnnotatedString(
-                                        article.source!!.name.toString()
+                                        article.sourceName ?: "Read More"
                                     ),
                                     // Style for the reference link
                                     style = TextStyle(
