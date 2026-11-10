@@ -53,11 +53,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -598,10 +604,10 @@ fun ChatBubbleItem(message: ChatBotMessage) {
                                 color = RustPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
+                            FormattedMarkdownText(
                                 text = message.text,
+                                textColor = TextPrimary,
                                 fontSize = 15.sp,
-                                color = TextPrimary,
                                 lineHeight = 22.sp
                             )
                         }
@@ -666,12 +672,21 @@ fun ChatBubbleItem(message: ChatBotMessage) {
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = message.text.ifEmpty { "Thinking..." },
-                                fontSize = 15.sp,
-                                color = if (message.text.isEmpty()) TextMuted else TextPrimary,
-                                lineHeight = 22.sp
-                            )
+                            if (message.text.isEmpty()) {
+                                Text(
+                                    text = "Thinking...",
+                                    fontSize = 15.sp,
+                                    color = TextMuted,
+                                    lineHeight = 22.sp
+                                )
+                            } else {
+                                FormattedMarkdownText(
+                                    text = message.text,
+                                    textColor = TextPrimary,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -693,15 +708,239 @@ fun ChatBubbleItem(message: ChatBotMessage) {
                             color = Color(0xFFDC2626)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
+                        FormattedMarkdownText(
                             text = message.text,
+                            textColor = Color(0xFF991B1B),
                             fontSize = 14.sp,
-                            color = Color(0xFF991B1B),
                             lineHeight = 20.sp
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Custom Markdown Formatted Text Renderer for Chat Bot messages.
+ * Formats:
+ * - **bold text** -> Bold
+ * - *italic text* -> Italic
+ * - `code` -> Monospace tag
+ * - #, ##, ### -> Headings
+ * - 1. , 2. -> Numbered list
+ * - - , * -> Bullet point list
+ * - --- -> Horizontal rule
+ */
+@Composable
+fun FormattedMarkdownText(
+    text: String,
+    modifier: Modifier = Modifier,
+    textColor: Color = TextPrimary,
+    fontSize: TextUnit = 15.sp,
+    lineHeight: TextUnit = 22.sp
+) {
+    val lines = text.split("\n")
+    var inCodeBlock = false
+    val codeBlockLines = mutableListOf<String>()
+
+    Column(modifier = modifier) {
+        lines.forEachIndexed { index, rawLine ->
+            val trimmedLine = rawLine.trim()
+
+            // Handle Code Block ```
+            if (trimmedLine.startsWith("```")) {
+                if (inCodeBlock) {
+                    val codeContent = codeBlockLines.joinToString("\n")
+                    CodeBlockItem(code = codeContent)
+                    codeBlockLines.clear()
+                    inCodeBlock = false
+                } else {
+                    inCodeBlock = true
+                }
+                return@forEachIndexed
+            }
+
+            if (inCodeBlock) {
+                codeBlockLines.add(rawLine)
+                return@forEachIndexed
+            }
+
+            when {
+                // Horizontal Divider: --- or *** or ___
+                trimmedLine.matches(Regex("^(\\s*[-*_]){3,}\\s*$")) -> {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(
+                        color = CardBorder.copy(alpha = 0.6f),
+                        thickness = 1.dp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Headers: #, ##, ###
+                trimmedLine.startsWith("#") -> {
+                    val level = trimmedLine.takeWhile { it == '#' }.length
+                    val headerText = trimmedLine.removePrefix("#".repeat(level)).trim()
+                    val headerFontSize = when (level) {
+                        1 -> 18.sp
+                        2 -> 16.sp
+                        else -> 15.sp
+                    }
+                    val annotatedHeader = parseInlineMarkdown(headerText, textColor)
+                    if (index > 0) Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = annotatedHeader,
+                        fontSize = headerFontSize,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        lineHeight = (headerFontSize.value + 6).sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                // Bullet items: - or *
+                trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") -> {
+                    val bulletContent = trimmedLine.drop(2).trim()
+                    val annotated = parseInlineMarkdown(bulletContent, textColor)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "•  ",
+                            fontSize = fontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = RustPrimary
+                        )
+                        Text(
+                            text = annotated,
+                            fontSize = fontSize,
+                            color = textColor,
+                            lineHeight = lineHeight
+                        )
+                    }
+                }
+
+                // Numbered list items: 1. , 2. , 10. , etc.
+                trimmedLine.matches(Regex("^\\d+\\.\\s+.*$")) -> {
+                    val dotIndex = trimmedLine.indexOf('.')
+                    val numberStr = trimmedLine.substring(0, dotIndex + 1)
+                    val contentStr = trimmedLine.substring(dotIndex + 1).trim()
+                    val annotated = parseInlineMarkdown(contentStr, textColor)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "$numberStr ",
+                            fontSize = fontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = RustPrimary
+                        )
+                        Text(
+                            text = annotated,
+                            fontSize = fontSize,
+                            color = textColor,
+                            lineHeight = lineHeight
+                        )
+                    }
+                }
+
+                // Empty lines
+                trimmedLine.isEmpty() -> {
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                // Normal Paragraph line
+                else -> {
+                    val annotatedLine = parseInlineMarkdown(rawLine, textColor)
+                    Text(
+                        text = annotatedLine,
+                        fontSize = fontSize,
+                        color = textColor,
+                        lineHeight = lineHeight,
+                        modifier = Modifier.padding(vertical = 1.dp)
+                    )
+                }
+            }
+        }
+
+        if (inCodeBlock && codeBlockLines.isNotEmpty()) {
+            CodeBlockItem(code = codeBlockLines.joinToString("\n"))
+        }
+    }
+}
+
+@Composable
+private fun CodeBlockItem(code: String) {
+    Surface(
+        color = Color(0xFF1E293B),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+    ) {
+        Text(
+            text = code,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            color = Color(0xFFF1F5F9),
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+/**
+ * Parses inline markdown tags (**bold**, *italic*, `code`) into AnnotatedString.
+ */
+fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
+    return buildAnnotatedString {
+        val pattern = Regex("(\\*{2}|_{2}|\\*|_|`)(.*?)\\1")
+        var currentIndex = 0
+
+        pattern.findAll(text).forEach { matchResult ->
+            val start = matchResult.range.first
+            val end = matchResult.range.last + 1
+            val delimiter = matchResult.groupValues[1]
+            val content = matchResult.groupValues[2]
+
+            if (start > currentIndex) {
+                append(text.substring(currentIndex, start))
+            }
+
+            when (delimiter) {
+                "**", "__" -> {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = defaultColor)) {
+                        append(content)
+                    }
+                }
+                "*", "_" -> {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = defaultColor)) {
+                        append(content)
+                    }
+                }
+                "`" -> {
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
+                            background = Color(0xFFF1F5F9),
+                            color = Color(0xFF0F172A)
+                        )
+                    ) {
+                        append(" $content ")
+                    }
+                }
+                else -> append(matchResult.value)
+            }
+
+            currentIndex = end
+        }
+
+        if (currentIndex < text.length) {
+            append(text.substring(currentIndex))
         }
     }
 }
