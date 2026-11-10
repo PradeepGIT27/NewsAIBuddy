@@ -66,7 +66,7 @@ private const val TAG = "LoginScreen"
 
 // ⚠️  IMPORTANT: Replace this with YOUR Web Client ID from the Google Cloud Console
 // (APIs & Services → Credentials → OAuth 2.0 Client IDs → Web application type)
-private const val WEB_CLIENT_ID = "YOUR_WEB_CLIENT_ID.apps.googleusercontent.com"
+private const val WEB_CLIENT_ID = "430048298657-t1h53k0fg09qquekqra4c8ndpq8tkg0t.apps.googleusercontent.com"
 
 @Composable
 fun LoginScreen(
@@ -194,6 +194,7 @@ fun LoginScreen(
                                 val googleIdOption = GetGoogleIdOption.Builder()
                                     .setFilterByAuthorizedAccounts(false)
                                     .setServerClientId(WEB_CLIENT_ID)
+                                    .setNonce(java.util.UUID.randomUUID().toString())
                                     .build()
 
                                 val request = GetCredentialRequest.Builder()

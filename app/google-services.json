@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "430048298657",
+    "project_id": "newsaibuddy-f8257",
+    "storage_bucket": "newsaibuddy-f8257.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:430048298657:android:fd793f0bdf40380eb9d2e0",
+        "android_client_info": {
+          "package_name": "com.support.tech.newsaibuddy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTKtI1Gt-win8GKvxhLo64318kUfXtfsg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
