@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -219,8 +218,9 @@ fun LoginScreen(
                                 authViewModel.setLoading(false)
                                 Log.d(TAG, "Sign-in cancelled by user")
                             } catch (e: Exception) {
-                                Log.e(TAG, "Sign-in failed", e)
-                                authViewModel.onSignInError("Sign-in failed: ${e.localizedMessage}")
+                                authViewModel.setLoading(false)
+                                Log.e(TAG, "Sign-in failed [${e.javaClass.simpleName}]: ${e.message}", e)
+                                authViewModel.onSignInError("Sign-in failed (${e.javaClass.simpleName}): ${e.message}")
                             }
                         }
                     },

@@ -317,7 +317,7 @@ fun NewsScreen(
                                     }
                                 }
                                 is ResourceState.Error -> {
-                                    EmptyStateComponent("Failed to load news. Check network connection.")
+                                    EmptyStateComponent(state.error.ifBlank { "Failed to load news. Check network connection." })
                                 }
                             }
                         }

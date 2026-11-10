@@ -12,6 +12,7 @@ class ApiKeyInterceptor(private val apiKey: String) : Interceptor {
         val originalRequest = chain.request()
         val requestWithApiKey = originalRequest.newBuilder()
             .header("X-Api-Key", apiKey)
+            .header("User-Agent", "NewsAIBuddy/1.0.0 (Android)")
             .build()
         return chain.proceed(requestWithApiKey)
     }

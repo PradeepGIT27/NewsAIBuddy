@@ -27,10 +27,13 @@ class NewsRepositoryImpl @Inject constructor(
                 val articles = response.body()!!.articles.toDomain()
                 emit(ResourceState.Success(articles))
             } else {
-                emit(ResourceState.Error("Error fetching news: ${response.message()}"))
+                val err = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: response.message()
+                android.util.Log.e("NewsRepository", "HTTP ${response.code()}: $err")
+                emit(ResourceState.Error("Error ${response.code()}: $err"))
             }
         }.catch { e ->
-            emit(ResourceState.Error(e.localizedMessage ?: "An unexpected error occurred"))
+            android.util.Log.e("NewsRepository", "Exception fetching news", e)
+            emit(ResourceState.Error(e.localizedMessage ?: e.javaClass.simpleName))
         }
     }
 
@@ -42,10 +45,13 @@ class NewsRepositoryImpl @Inject constructor(
                 val articles = response.body()!!.articles.toDomain()
                 emit(ResourceState.Success(articles))
             } else {
-                emit(ResourceState.Error("Error fetching news: ${response.message()}"))
+                val err = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: response.message()
+                android.util.Log.e("NewsRepository", "HTTP ${response.code()}: $err")
+                emit(ResourceState.Error("Error ${response.code()}: $err"))
             }
         }.catch { e ->
-            emit(ResourceState.Error(e.localizedMessage ?: "An unexpected error occurred"))
+            android.util.Log.e("NewsRepository", "Exception fetching news", e)
+            emit(ResourceState.Error(e.localizedMessage ?: e.javaClass.simpleName))
         }
     }
 }
