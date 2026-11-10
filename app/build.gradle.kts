@@ -58,6 +58,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+        freeCompilerArgs = listOf("-Xskip-metadata-version-check")
     }
     buildFeatures {
         compose = true
@@ -86,7 +87,10 @@ dependencies {
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
+    ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.21")
     implementation(libs.androidx.hilt.navigation.compose)
+
+    implementation(libs.litertlm.android)
 
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
@@ -108,4 +112,5 @@ dependencies {
 
     implementation(libs.generativeai)
     implementation(libs.kotlinx.serialization.json)
+
 }

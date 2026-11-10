@@ -3,141 +3,191 @@ package com.support.tech.newsaibuddy.ui.viewmodel.chatbot
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.asTextOrNull
-import com.google.ai.client.generativeai.type.content
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
+import com.support.tech.newsaibuddy.data.litertlm.DownloadState
+import com.support.tech.newsaibuddy.data.litertlm.LiteRtLmService
+import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
+import com.support.tech.newsaibuddy.data.litertlm.LiteRtModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * ViewModel for handling chat interactions.
- * Manages conversation state with Google Gemini AI model using immutable StateFlow updates.
+ * ViewModel for handling on-device AI chat interactions using Google LiteRT-LM.
+ * Manages model downloading, initialization, streaming generation, and UI state.
  */
 @HiltViewModel
 class ChatBotViewModel @Inject constructor(
-    generativeModel: GenerativeModel
+    private val liteRtModelManager: LiteRtModelManager,
+    private val liteRtLmService: LiteRtLmService
 ) : ViewModel() {
 
-    private val chat = generativeModel.startChat(
-        history = listOf(
-            content(role = "user") { text("Hello, ChatBot.") },
-            content(role = "model") { text("Great to meet you. What would you like to know?") }
-        )
+    private val initialWelcomeMessage = ChatBotMessage(
+        text = "Hello! I'm NewsAIBuddy, your on-device AI companion running 100% locally with Google LiteRT-LM. How can I assist you today?",
+        participant = ChatBotMessageSender.MODEL,
+        isPending = false
     )
 
     private val _uiState = MutableStateFlow(
         ChatUiState(
-            messages = chat.history.map { content ->
-                ChatBotMessage(
-                    text = content.parts.first().asTextOrNull() ?: "",
-                    participant = if (content.role == "user") ChatBotMessageSender.USER else ChatBotMessageSender.MODEL,
-                    isPending = false
-                )
-            }
+            messages = listOf(initialWelcomeMessage),
+            modelStatus = ModelStatus.Checking
         )
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    init {
+        checkAndInitLocalModel()
+    }
+
     /**
-     * Sends a message from the user to the Gemini AI model.
-     * Employs Unidirectional Data Flow by appending a pending message first,
-     * awaiting model completion, and updating with the model response or error.
+     * Checks if a local .litertlm file exists on device storage.
+     */
+    fun checkAndInitLocalModel() {
+        val existingModel = liteRtModelManager.findExistingModelFile()
+        if (existingModel != null && existingModel.exists()) {
+            loadModel(existingModel.absolutePath)
+        } else {
+            _uiState.update {
+                it.copy(modelStatus = ModelStatus.NotDownloaded(LiteRtModel.ALL_MODELS))
+            }
+        }
+    }
+
+    /**
+     * Initializes the LiteRT-LM engine with the specified model file path.
+     */
+    fun loadModel(modelPath: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(modelStatus = ModelStatus.Initializing("Loading on-device model..."))
+            }
+
+            val result = liteRtLmService.initialize(modelPath)
+            result.fold(
+                onSuccess = { backend ->
+                    _uiState.update {
+                        it.copy(modelStatus = ModelStatus.Ready(backend = backend, modelPath = modelPath))
+                    }
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Model initialization failed", error)
+                    _uiState.update {
+                        it.copy(
+                            modelStatus = ModelStatus.Error(
+                                error.localizedMessage ?: "Failed to initialize LiteRT-LM engine."
+                            )
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    /**
+     * Downloads an on-device model directly within the app and initializes it.
+     */
+    fun startDownload(model: LiteRtModel) {
+        viewModelScope.launch {
+            liteRtModelManager.downloadModel(model).collect { downloadState ->
+                _uiState.update { it.copy(downloadState = downloadState) }
+
+                when (downloadState) {
+                    is DownloadState.Completed -> {
+                        loadModel(downloadState.filePath)
+                    }
+                    is DownloadState.Failed -> {
+                        _uiState.update {
+                            it.copy(
+                                modelStatus = ModelStatus.Error(downloadState.error)
+                            )
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends a user message and streams the AI response chunk by chunk.
      */
     fun sendMessage(userMessage: String) {
-        if (userMessage.isBlank()) return
+        val trimmed = userMessage.trim()
+        if (trimmed.isBlank() || _uiState.value.isGenerating) return
 
-        val pendingUserMessage = ChatBotMessage(
-            text = userMessage,
+        val userChatMessage = ChatBotMessage(
+            text = trimmed,
             participant = ChatBotMessageSender.USER,
+            isPending = false
+        )
+
+        val botMessageId = UUID.randomUUID().toString()
+        val pendingBotMessage = ChatBotMessage(
+            id = botMessageId,
+            text = "",
+            participant = ChatBotMessageSender.MODEL,
             isPending = true
         )
 
         _uiState.update { current ->
-            current.copy(messages = current.messages + pendingUserMessage)
+            current.copy(
+                messages = current.messages + userChatMessage + pendingBotMessage,
+                isGenerating = true
+            )
         }
 
         viewModelScope.launch {
-            var responseText: String? = null
-            var lastError: Exception? = null
+            val responseBuilder = StringBuilder()
+            try {
+                liteRtLmService.sendMessageStream(trimmed).collect { chunk ->
+                    responseBuilder.append(chunk)
+                    val currentText = responseBuilder.toString()
 
-            // Retry up to 2 times for transient 503 / server / timeout errors
-            val maxRetries = 2
-            for (attempt in 0..maxRetries) {
-                try {
-                    // Timeout after 60 seconds to allow model generation while preventing infinite loading spinners
-                    val response = withTimeoutOrNull(60000L.milliseconds) {
-                        chat.sendMessage(userMessage)
-                    }
-                    if (response != null) {
-                        responseText = response.text
-                        break
-                    } else {
-                        lastError = Exception("Request timed out. Please try again.")
-                    }
-                } catch (e: Exception) {
-                    val isTimeout = e is java.util.concurrent.CancellationException ||
-                            e.cause is java.util.concurrent.CancellationException ||
-                            e.message?.contains("Timed out", ignoreCase = true) == true
-                    lastError = if (isTimeout) {
-                        Exception("Request timed out. Please try again.")
-                    } else {
-                        e
-                    }
-                    Log.e("ChatBotViewModel", "Attempt ${attempt + 1} failed sending message", e)
-
-                    val errorMsg = e.message.orEmpty()
-                    val isTransient = isTimeout || errorMsg.contains("503") || errorMsg.contains("500") || errorMsg.contains("UNAVAILABLE", ignoreCase = true)
-                    if (isTransient && attempt < maxRetries) {
-                        kotlinx.coroutines.delay((1000L * (attempt + 1)).milliseconds)
-                        continue
-                    } else {
-                        break
+                    _uiState.update { current ->
+                        val updatedMessages = current.messages.map { msg ->
+                            if (msg.id == botMessageId) {
+                                msg.copy(text = currentText, isPending = false)
+                            } else {
+                                msg
+                            }
+                        }
+                        current.copy(messages = updatedMessages)
                     }
                 }
-            }
 
-            _uiState.update { current ->
-                val resolvedMessages = current.messages.map { msg ->
-                    if (msg.id == pendingUserMessage.id) msg.copy(isPending = false) else msg
+                _uiState.update { current ->
+                    current.copy(isGenerating = false)
                 }
-
-                if (responseText != null) {
-                    val modelMessage = ChatBotMessage(
-                        text = responseText,
-                        participant = ChatBotMessageSender.MODEL,
-                        isPending = false
-                    )
-                    current.copy(messages = resolvedMessages + modelMessage)
-                } else {
-                    val rawMsg = lastError?.localizedMessage.orEmpty()
-                    val formattedMsg = when {
-                        rawMsg.contains("503") || rawMsg.contains("UNAVAILABLE", ignoreCase = true) ->
-                            "The AI service is temporarily overloaded (HTTP 503). Please try again in a moment."
-                        rawMsg.contains("500") || rawMsg.contains("INTERNAL", ignoreCase = true) ->
-                            "The AI service encountered a temporary server error. Please try again."
-                        rawMsg.contains("Timed out", ignoreCase = true) ->
-                            "Request timed out. Please try again."
-                        rawMsg.contains("UnknownException") || rawMsg.contains("Something unexpected happened") ->
-                            "Something went wrong with the AI service. Please try again."
-                        rawMsg.isBlank() -> "Something went wrong. Please try again."
-                        else -> rawMsg
-                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error generating response", e)
+                _uiState.update { current ->
+                    val resolvedMessages = current.messages.filter { it.id != botMessageId }
                     val errorMessage = ChatBotMessage(
-                        text = formattedMsg,
+                        text = "Error: ${e.localizedMessage ?: "Failed to generate on-device response."}",
                         participant = ChatBotMessageSender.ERROR
                     )
-                    current.copy(messages = resolvedMessages + errorMessage)
+                    current.copy(
+                        messages = resolvedMessages + errorMessage,
+                        isGenerating = false
+                    )
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        liteRtLmService.close()
+    }
+
+    companion object {
+        private const val TAG = "ChatBotViewModel"
     }
 }
