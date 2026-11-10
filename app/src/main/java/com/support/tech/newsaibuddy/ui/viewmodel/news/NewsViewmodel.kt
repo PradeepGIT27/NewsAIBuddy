@@ -3,6 +3,7 @@ package com.support.tech.newsaibuddy.ui.viewmodel.news
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.support.tech.newsaibuddy.data.api.ResourceState
+import com.support.tech.newsaibuddy.data.local.SavedArticlesManager
 import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.domain.model.NewsCategory
 import com.support.tech.newsaibuddy.domain.usecase.GetNewsByCategoryUseCase
@@ -18,11 +19,12 @@ import javax.inject.Inject
 /**
  * ViewModel for handling news data.
  * Adheres to MVVM + StateFlow with Unidirectional Data Flow (UDF).
- * Injects Domain UseCase instead of depending directly on Data layer repositories.
+ * Saved articles are persisted via [SavedArticlesManager] (DataStore-backed).
  */
 @HiltViewModel
 class NewsViewmodel @Inject constructor(
-    private val getNewsByCategoryUseCase: GetNewsByCategoryUseCase
+    private val getNewsByCategoryUseCase: GetNewsByCategoryUseCase,
+    private val savedArticlesManager: SavedArticlesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NewsUiState())
@@ -30,6 +32,14 @@ class NewsViewmodel @Inject constructor(
 
     init {
         getNewsByCategory(NewsCategory.BUSINESS.categoryValue)
+        // Load saved articles from persistent storage
+        viewModelScope.launch {
+            savedArticlesManager.savedArticles.collect { articles ->
+                _uiState.update { current ->
+                    current.copy(savedArticles = articles)
+                }
+            }
+        }
     }
 
     /**
@@ -55,15 +65,26 @@ class NewsViewmodel @Inject constructor(
         }
     }
 
+    /**
+     * Toggles bookmark state and persists to DataStore.
+     */
     fun toggleBookmark(article: Article) {
-        _uiState.update { current ->
-            val isSaved = current.savedArticles.any { it.url == article.url }
-            val updatedSaved = if (isSaved) {
-                current.savedArticles.filterNot { it.url == article.url }
+        viewModelScope.launch {
+            val isSaved = _uiState.value.savedArticles.any { it.url == article.url }
+            if (isSaved) {
+                savedArticlesManager.removeArticle(article)
             } else {
-                current.savedArticles + article
+                savedArticlesManager.addArticle(article)
             }
-            current.copy(savedArticles = updatedSaved)
+        }
+    }
+
+    /**
+     * Clears all saved articles from DataStore.
+     */
+    fun clearAllSavedArticles() {
+        viewModelScope.launch {
+            savedArticlesManager.clearAll()
         }
     }
 

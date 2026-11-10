@@ -113,4 +113,11 @@ dependencies {
     implementation(libs.generativeai)
     implementation(libs.kotlinx.serialization.json)
 
+    // Google Sign-In with Credential Manager
+    implementation(libs.credentials)
+    implementation(libs.credentials.play)
+    implementation(libs.googleid)
+
+    // DataStore for session & saved articles persistence
+    implementation(libs.datastore.preferences)
 }
