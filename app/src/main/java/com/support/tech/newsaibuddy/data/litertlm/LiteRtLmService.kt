@@ -1,6 +1,7 @@
 package com.support.tech.newsaibuddy.data.litertlm
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
@@ -13,10 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,8 +55,29 @@ class LiteRtLmService @Inject constructor(
         get() = engine != null && conversation != null
 
     /**
+     * Checks if the current device can safely run GPU OpenCL kernels for LiteRT-LM.
+     * On Samsung Galaxy S25 series (Snapdragon 8 Elite / Adreno 830) and Android 15+,
+     * OpenCL driver differences cause segmentation faults (SIGSEGV in libOpenCL.so).
+     * On such devices, the Snapdragon 8 Elite Oryon CPU cores provide blazing-fast, 100% stable inference.
+     */
+    private fun isGpuSafe(): Boolean {
+        val isSamsung = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+        val isAndroid15Plus = Build.VERSION.SDK_INT >= 35
+        val isSnapdragon8Elite = Build.HARDWARE.contains("qcom", ignoreCase = true) &&
+                ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && Build.SOC_MODEL.equals("SM8750", ignoreCase = true)) ||
+                 Build.MODEL.contains("S93", ignoreCase = true))
+
+        if (isSamsung && (isAndroid15Plus || isSnapdragon8Elite)) {
+            Log.w(TAG, "Samsung S25 / Android 15+ detected: Selecting CPU backend to prevent OpenCL GPU driver crash.")
+            return false
+        }
+        return true
+    }
+
+    /**
      * Initializes the LiteRT-LM engine and conversation off the main thread.
-     * Attempts GPU backend first with automatic fallback to CPU.
+     * Uses CPU backend on devices with known OpenCL driver issues (like S25 Ultra),
+     * and attempts GPU with CPU fallback on compatible devices.
      */
     suspend fun initialize(modelPath: String): Result<String> = withContext(dispatcher) {
         mutex.withLock {
@@ -71,20 +92,28 @@ class LiteRtLmService @Inject constructor(
 
             releaseInternal()
 
-            // Try GPU first
             var loadedEngine: Engine? = null
-            var backendUsed = "GPU"
-            try {
-                Log.d(TAG, "Attempting to initialize LiteRT-LM engine with GPU backend...")
-                val gpuConfig = EngineConfig(
-                    modelPath = modelPath,
-                    backend = Backend.GPU(),
-                    cacheDir = context.cacheDir.path
-                )
-                loadedEngine = Engine(gpuConfig).also { it.initialize() }
-                Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
-            } catch (gpuError: Throwable) {
-                Log.w(TAG, "GPU initialization failed (${gpuError.message}), falling back to CPU backend...", gpuError)
+            var backendUsed = "CPU"
+
+            // Try GPU first only if safe for this device architecture
+            if (isGpuSafe()) {
+                try {
+                    Log.d(TAG, "Attempting to initialize LiteRT-LM engine with GPU backend...")
+                    val gpuConfig = EngineConfig(
+                        modelPath = modelPath,
+                        backend = Backend.GPU(),
+                        cacheDir = context.cacheDir.path
+                    )
+                    loadedEngine = Engine(gpuConfig).also { it.initialize() }
+                    backendUsed = "GPU"
+                    Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
+                } catch (gpuError: Throwable) {
+                    Log.w(TAG, "GPU initialization failed (${gpuError.message}), falling back to CPU backend...", gpuError)
+                }
+            }
+
+            // CPU initialization (default or fallback)
+            if (loadedEngine == null) {
                 try {
                     val cpuConfig = EngineConfig(
                         modelPath = modelPath,
@@ -123,47 +152,26 @@ class LiteRtLmService @Inject constructor(
 
     /**
      * Streams generated tokens asynchronously for a user query.
+     * All calls run on the dedicated single-thread dispatcher as required by LiteRT-LM.
      */
-    fun sendMessageStream(text: String): Flow<String> = callbackFlow {
-        val job = scope.launch {
-            if (!isReady || isBusy) {
-                close(IllegalStateException("Engine is not ready or is busy"))
-                return@launch
+    fun sendMessageStream(text: String): Flow<String> = channelFlow {
+        withContext(dispatcher) {
+            val conv = conversation ?: throw IllegalStateException("Model is not initialized.")
+            if (isBusy) {
+                throw IllegalStateException("Model is already busy generating.")
             }
 
             isBusy = true
             try {
-                val currentConv = conversation
-                if (currentConv == null) {
-                    close(IllegalStateException("Conversation is null"))
-                    return@launch
+                conv.sendMessageAsync(text).collect { message ->
+                    send(message.toString())
                 }
-
-                val replies = currentConv.sendMessageAsync(text)
-                replies.collect { message ->
-                    trySend(message.toString())
-                }
-                close()
             } catch (e: CancellationException) {
-                conversation?.cancelProcess()
+                try { conv.cancelProcess() } catch (_: Throwable) {}
                 throw e
-            } catch (e: Throwable) {
-                close(e)
             } finally {
                 isBusy = false
             }
-        }
-
-        awaitClose {
-            if (isBusy) {
-                scope.launch {
-                    try {
-                        conversation?.cancelProcess()
-                    } catch (_: Throwable) {}
-                    isBusy = false
-                }
-            }
-            job.cancel()
         }
     }
 

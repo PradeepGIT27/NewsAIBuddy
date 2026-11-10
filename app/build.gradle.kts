@@ -31,8 +31,8 @@ android {
         applicationId = "com.support.tech.newsaibuddy"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.0"
+        versionCode = 7
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -118,9 +118,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.androidx.material)
-    implementation(libs.androidx.ui.tooling)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
