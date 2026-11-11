@@ -205,12 +205,11 @@ private fun ChatBotTopBar(
         ) {
             // Rounded Back Button
             Surface(
+                onClick = onBackClick,
                 shape = RoundedCornerShape(12.dp),
                 color = CardBackground,
                 border = BorderStroke(1.dp, CardBorder),
-                modifier = Modifier
-                    .size(42.dp)
-                    .clickable(onClick = onBackClick)
+                modifier = Modifier.size(42.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -333,9 +332,9 @@ private fun OnDeviceModelCard(
                 }
 
                 Surface(
+                    onClick = onRefresh,
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFF3F4F6),
-                    modifier = Modifier.clickable(onClick = onRefresh)
+                    color = Color(0xFFF3F4F6)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -990,13 +989,13 @@ private fun PromptCard(
     onClick: () -> Unit
 ) {
     Card(
+        onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         border = BorderStroke(1.dp, CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -1073,7 +1072,12 @@ private fun ChatBotInputSection(
                         }
                     ),
                     shape = RoundedCornerShape(14.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 15.sp),
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        disabledTextColor = TextSecondary,
+                        cursorColor = RustPrimary,
                         focusedBorderColor = RustPrimary,
                         unfocusedBorderColor = CardBorder,
                         focusedContainerColor = CardBackground,

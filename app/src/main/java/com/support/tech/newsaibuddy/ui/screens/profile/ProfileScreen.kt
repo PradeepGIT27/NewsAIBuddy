@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.support.tech.newsaibuddy.BuildConfig
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
 import com.support.tech.newsaibuddy.ui.theme.CardBorder
 import com.support.tech.newsaibuddy.ui.theme.RustPrimary
@@ -244,7 +245,7 @@ fun ProfileScreen(
 
         // App Version
         Text(
-            text = "NewsAI Buddy v1.0",
+            text = "NewsAI Buddy v${BuildConfig.VERSION_NAME}",
             fontSize = 12.sp,
             color = TextMuted
         )

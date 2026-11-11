@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material3.ButtonDefaults
@@ -107,11 +109,12 @@ fun LoginScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 32.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 32.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Spacer(modifier = Modifier.weight(0.15f))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // App Icon
                 AnimatedVisibility(
@@ -168,7 +171,7 @@ fun LoginScreen(
                     lineHeight = 22.sp
                 )
 
-                Spacer(modifier = Modifier.weight(0.2f))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // Features preview
                 Column(
@@ -181,7 +184,7 @@ fun LoginScreen(
                     FeatureRow(emoji = "🤖", text = "Chat with AI about the news")
                 }
 
-                Spacer(modifier = Modifier.weight(0.25f))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // Google Sign-In Button
                 OutlinedButton(
@@ -263,7 +266,7 @@ fun LoginScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.weight(0.1f))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

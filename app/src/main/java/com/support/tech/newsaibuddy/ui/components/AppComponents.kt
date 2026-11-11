@@ -56,7 +56,6 @@ import com.support.tech.newsaibuddy.ui.theme.RustPrimary
 import com.support.tech.newsaibuddy.ui.theme.TextMuted
 import com.support.tech.newsaibuddy.ui.theme.TextPrimary
 import com.support.tech.newsaibuddy.ui.theme.TextSecondary
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
@@ -76,6 +75,7 @@ fun NewsArticleCard(
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
     Card(
+        onClick = { isExpanded = !isExpanded },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         border = BorderStroke(1.dp, CardBorder),
@@ -83,7 +83,6 @@ fun NewsArticleCard(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clickable { isExpanded = !isExpanded }
     ) {
         Column(
             modifier = Modifier

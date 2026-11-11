@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+import kotlinx.coroutines.flow.map
+
 /**
  * Holds the current user profile data.
  */
@@ -31,9 +33,10 @@ class AuthViewModel @Inject constructor(
     private val userSessionManager: UserSessionManager
 ) : ViewModel() {
 
-    /** Whether the user is currently logged in (observed from DataStore). */
-    val isLoggedIn: StateFlow<Boolean> = userSessionManager.isLoggedIn
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** Whether the user is currently logged in (observed from DataStore). null = loading session. */
+    val isLoggedIn: StateFlow<Boolean?> = userSessionManager.isLoggedIn
+        .map<Boolean, Boolean?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _userProfile = MutableStateFlow(UserProfile())
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
