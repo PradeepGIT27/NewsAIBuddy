@@ -8,6 +8,10 @@ import com.support.tech.newsaibuddy.domain.repository.NewsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.inject.Inject
 
 /**
@@ -27,13 +31,14 @@ class NewsRepositoryImpl @Inject constructor(
                 val articles = response.body()!!.articles.toDomain()
                 emit(ResourceState.Success(articles))
             } else {
-                val err = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: response.message()
-                android.util.Log.e("NewsRepository", "HTTP ${response.code()}: $err")
-                emit(ResourceState.Error("Error ${response.code()}: $err"))
+                val code = response.code()
+                val err = mapHttpErrorCode(code, response.errorBody()?.string() ?: response.message())
+                android.util.Log.e("NewsRepository", "HTTP $code: $err")
+                emit(ResourceState.Error(err))
             }
         }.catch { e ->
             android.util.Log.e("NewsRepository", "Exception fetching news", e)
-            emit(ResourceState.Error(e.localizedMessage ?: e.javaClass.simpleName))
+            emit(ResourceState.Error(mapExceptionToFriendlyMessage(e)))
         }
     }
 
@@ -45,14 +50,44 @@ class NewsRepositoryImpl @Inject constructor(
                 val articles = response.body()!!.articles.toDomain()
                 emit(ResourceState.Success(articles))
             } else {
-                val err = response.errorBody()?.string()?.takeIf { it.isNotBlank() } ?: response.message()
-                android.util.Log.e("NewsRepository", "HTTP ${response.code()}: $err")
-                emit(ResourceState.Error("Error ${response.code()}: $err"))
+                val code = response.code()
+                val err = mapHttpErrorCode(code, response.errorBody()?.string() ?: response.message())
+                android.util.Log.e("NewsRepository", "HTTP $code: $err")
+                emit(ResourceState.Error(err))
             }
         }.catch { e ->
             android.util.Log.e("NewsRepository", "Exception fetching news", e)
-            emit(ResourceState.Error(e.localizedMessage ?: e.javaClass.simpleName))
+            emit(ResourceState.Error(mapExceptionToFriendlyMessage(e)))
+        }
+    }
+
+    private fun mapHttpErrorCode(code: Int, serverMessage: String): String {
+        return when (code) {
+            429 -> "Too many requests. Please try again in a few moments."
+            500, 502, 503, 504 -> "Server is currently unavailable. Please try again later."
+            else -> if (serverMessage.isNotBlank() && !serverMessage.contains("<html>", ignoreCase = true)) {
+                serverMessage
+            } else {
+                "Unable to fetch news stories (Error $code)."
+            }
+        }
+    }
+
+    private fun mapExceptionToFriendlyMessage(e: Throwable): String {
+        val message = e.localizedMessage ?: ""
+        return when {
+            e is UnknownHostException || message.contains("Unable to resolve host", ignoreCase = true) || message.contains("No address associated with hostname", ignoreCase = true) -> {
+                "No internet connection. Please check your network and try again."
+            }
+            e is ConnectException || e is SocketTimeoutException -> {
+                "Connection timed out. Please check your network connection."
+            }
+            e is IOException -> {
+                "Network error. Please verify your connection and try again."
+            }
+            else -> {
+                if (message.isNotBlank()) message else "Failed to load news. Please try again."
+            }
         }
     }
 }
-

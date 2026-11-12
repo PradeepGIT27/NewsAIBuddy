@@ -101,13 +101,12 @@ fun ProfileScreen(
             modifier = Modifier.size(100.dp)
         ) {
             if (userProfile.photoUrl.isNotBlank()) {
-                AsyncImage(
+                com.support.tech.newsaibuddy.ui.components.ShimmerAsyncImage(
                     model = userProfile.photoUrl,
                     contentDescription = "Profile Picture",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Box(

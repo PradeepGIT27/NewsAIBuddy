@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.Executors
 import javax.inject.Inject
@@ -30,6 +31,7 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Service managing the on-device LiteRT-LM Engine and Conversation lifecycles.
  * Executes model operations on a dedicated single-thread executor as required by LiteRT-LM.
+ * Features strict initialization timeouts to prevent app unresponsive/hanging states.
  */
 @Singleton
 class LiteRtLmService @Inject constructor(
@@ -75,13 +77,13 @@ class LiteRtLmService @Inject constructor(
     }
 
     /**
-     * Initializes the LiteRT-LM engine and conversation off the main thread.
+     * Initializes the LiteRT-LM engine and conversation off the main thread with timeouts.
      * Uses CPU backend on devices with known OpenCL driver issues (like S25 Ultra),
-     * and attempts GPU with CPU fallback on compatible devices.
+     * or when forceCpu is true, and attempts GPU with CPU fallback on compatible devices.
      */
-    suspend fun initialize(modelPath: String): Result<String> = withContext(dispatcher) {
+    suspend fun initialize(modelPath: String, forceCpu: Boolean = false): Result<String> = withContext(dispatcher) {
         mutex.withLock {
-            if (engine != null && loadedModelPath == modelPath) {
+            if (engine != null && loadedModelPath == modelPath && (forceCpu == (activeBackend == "CPU"))) {
                 return@withLock Result.success(activeBackend ?: "Ready")
             }
 
@@ -95,8 +97,8 @@ class LiteRtLmService @Inject constructor(
             var loadedEngine: Engine? = null
             var backendUsed = "CPU"
 
-            // Try GPU first only if safe for this device architecture
-            if (isGpuSafe()) {
+            // Try GPU first only if requested & safe for this device architecture
+            if (!forceCpu && isGpuSafe()) {
                 try {
                     Log.d(TAG, "Attempting to initialize LiteRT-LM engine with GPU backend...")
                     val gpuConfig = EngineConfig(
@@ -104,9 +106,16 @@ class LiteRtLmService @Inject constructor(
                         backend = Backend.GPU(),
                         cacheDir = context.cacheDir.path
                     )
-                    loadedEngine = Engine(gpuConfig).also { it.initialize() }
-                    backendUsed = "GPU"
-                    Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
+                    // Use a 15-second timeout for GPU init so it doesn't freeze the app if GPU driver stalls
+                    loadedEngine = withTimeoutOrNull(15_000L) {
+                        Engine(gpuConfig).also { it.initialize() }
+                    }
+                    if (loadedEngine != null) {
+                        backendUsed = "GPU"
+                        Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
+                    } else {
+                        Log.w(TAG, "GPU initialization timed out after 15s. Falling back to CPU...")
+                    }
                 } catch (gpuError: Throwable) {
                     Log.w(TAG, "GPU initialization failed (${gpuError.message}), falling back to CPU backend...", gpuError)
                 }
@@ -115,14 +124,24 @@ class LiteRtLmService @Inject constructor(
             // CPU initialization (default or fallback)
             if (loadedEngine == null) {
                 try {
+                    Log.d(TAG, "Attempting to initialize LiteRT-LM engine with CPU backend...")
                     val cpuConfig = EngineConfig(
                         modelPath = modelPath,
                         backend = Backend.CPU(),
                         cacheDir = context.cacheDir.path
                     )
-                    loadedEngine = Engine(cpuConfig).also { it.initialize() }
-                    backendUsed = "CPU"
-                    Log.d(TAG, "LiteRT-LM initialized successfully on CPU")
+                    // Use a 30-second timeout for CPU init
+                    loadedEngine = withTimeoutOrNull(30_000L) {
+                        Engine(cpuConfig).also { it.initialize() }
+                    }
+                    if (loadedEngine != null) {
+                        backendUsed = "CPU"
+                        Log.d(TAG, "LiteRT-LM initialized successfully on CPU")
+                    } else {
+                        val timeoutMsg = "Engine initialization timed out (took over 30 seconds)."
+                        Log.e(TAG, timeoutMsg)
+                        return@withLock Result.failure(IllegalStateException(timeoutMsg))
+                    }
                 } catch (cpuError: Throwable) {
                     Log.e(TAG, "CPU initialization also failed", cpuError)
                     return@withLock Result.failure(cpuError)
@@ -176,12 +195,16 @@ class LiteRtLmService @Inject constructor(
     }
 
     private suspend fun releaseInternal() {
-        while (isBusy) {
+        var attempts = 0
+        while (isBusy && attempts < 20) { // max wait 1 second
             try {
                 conversation?.cancelProcess()
             } catch (_: Throwable) {}
             delay(50)
+            attempts++
         }
+        isBusy = false
+
         try {
             conversation?.close()
         } catch (_: Throwable) {}
@@ -194,7 +217,6 @@ class LiteRtLmService @Inject constructor(
 
         loadedModelPath = null
         activeBackend = null
-        isBusy = false
     }
 
     suspend fun release() = withContext(dispatcher) {

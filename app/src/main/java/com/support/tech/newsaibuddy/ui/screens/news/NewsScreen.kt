@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
@@ -65,6 +64,7 @@ import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.domain.model.NewsCategory
 import com.support.tech.newsaibuddy.ui.components.AppLoader
 import com.support.tech.newsaibuddy.ui.components.EmptyStateComponent
+import com.support.tech.newsaibuddy.ui.components.NetworkErrorComponent
 import com.support.tech.newsaibuddy.ui.components.NewsCardView
 import com.support.tech.newsaibuddy.ui.screens.profile.ProfileScreen
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
@@ -331,7 +331,13 @@ fun NewsScreen(
                                     }
                                 }
                                 is ResourceState.Error -> {
-                                    EmptyStateComponent(state.error.ifBlank { "Failed to load news. Check network connection." })
+                                    val categoryKey = categories[page].categoryValue
+                                    NetworkErrorComponent(
+                                        message = state.error.ifBlank { "No internet connection. Please check your network and try again." },
+                                        onRetry = {
+                                            newsViewModel.getNewsByCategory(categoryKey, forceRefresh = true)
+                                        }
+                                    )
                                 }
                             }
                         }

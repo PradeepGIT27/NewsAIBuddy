@@ -25,24 +25,36 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -62,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -88,10 +102,12 @@ import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ModelStatus
 
 /**
  * ChatBot Screen powered by Google LiteRT-LM (On-Device LLM):
- * - Top header with rounded back button, title, on-device status badge & bot avatar
+ * - Top header with back button, model picker selector, status badge & bot avatar
+ * - Sticky Top Download Progress Banner when downloading in background
+ * - Model Selection Modal BottomSheet allowing users to change or download models anytime
  * - "NEW CONVERSATION" divider
- * - On-Device model management card when model setup or download is required
- * - Distinct styled chat bubbles for User (warm cream) and Bot (white + avatar icon) with streaming support
+ * - On-Device model management card when setup or download is required
+ * - Distinct styled chat bubbles for User and Bot with streaming support
  * - "A PLACE TO START" prompt suggestion cards
  * - Rounded input bar with rust upward-arrow send button & on-device AI status
  */
@@ -117,7 +133,10 @@ fun ChatBotScreen(
         topBar = {
             ChatBotTopBar(
                 modelStatus = chatUiState.modelStatus,
-                onBackClick = { navController.popBackStack() }
+                activeModel = chatUiState.activeModel,
+                downloadState = chatUiState.downloadState,
+                onBackClick = { navController.popBackStack() },
+                onOpenModelSelector = { chatViewModel.toggleModelSelector(true) }
             )
         },
         bottomBar = {
@@ -135,6 +154,14 @@ fun ChatBotScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Sticky Download Progress Banner at top of screen
+            if (chatUiState.downloadState is DownloadState.Downloading) {
+                TopDownloadProgressBanner(
+                    downloadState = chatUiState.downloadState as DownloadState.Downloading,
+                    onCancel = { chatViewModel.cancelDownload() }
+                )
+            }
+
             // "NEW CONVERSATION" Divider
             NewConversationDivider()
 
@@ -147,17 +174,28 @@ fun ChatBotScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // If model needs setup or downloading, show the on-device model card first
+                // If model needs setup or downloading, or has error, show the on-device model card first
                 if (chatUiState.modelStatus !is ModelStatus.Ready) {
                     item {
                         OnDeviceModelCard(
                             modelStatus = chatUiState.modelStatus,
                             downloadState = chatUiState.downloadState,
-                            onDownloadModel = { model ->
-                                chatViewModel.startDownload(model)
+                            downloadedModelIds = chatUiState.downloadedModelIds,
+                            activeModel = chatUiState.activeModel,
+                            onSelectModel = { model ->
+                                chatViewModel.selectModel(model)
+                            },
+                            onLoadWithCpu = { model ->
+                                chatViewModel.loadModel(model, forceCpu = true)
+                            },
+                            onCancelDownload = {
+                                chatViewModel.cancelDownload()
                             },
                             onRefresh = {
                                 chatViewModel.checkAndInitLocalModel()
+                            },
+                            onOpenModelSelector = {
+                                chatViewModel.toggleModelSelector(true)
                             }
                         )
                     }
@@ -171,6 +209,7 @@ fun ChatBotScreen(
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     PlaceToStartSection(
+                        prompts = chatUiState.starterPrompts,
                         enabled = isModelReady && !chatUiState.isGenerating,
                         onPromptClick = { prompt ->
                             chatViewModel.sendMessage(prompt)
@@ -180,15 +219,41 @@ fun ChatBotScreen(
             }
         }
     }
+
+    // Model Selector Bottom Sheet
+    if (chatUiState.showModelSelectorSheet) {
+        ModelSelectionBottomSheet(
+            availableModels = chatUiState.availableModels,
+            downloadedModelIds = chatUiState.downloadedModelIds,
+            activeModel = chatUiState.activeModel,
+            modelStatus = chatUiState.modelStatus,
+            downloadState = chatUiState.downloadState,
+            onSelectModel = { model ->
+                chatViewModel.selectModel(model)
+            },
+            onForceCpuModel = { model ->
+                chatViewModel.loadModel(model, forceCpu = true)
+            },
+            onCancelDownload = {
+                chatViewModel.cancelDownload()
+            },
+            onDismiss = {
+                chatViewModel.toggleModelSelector(false)
+            }
+        )
+    }
 }
 
 /**
- * Top App Bar with title, subtitle, on-device status badge & robot icon.
+ * Top App Bar with title, active model selector chip, on-device status badge & robot icon.
  */
 @Composable
 private fun ChatBotTopBar(
     modelStatus: ModelStatus,
-    onBackClick: () -> Unit
+    activeModel: LiteRtModel?,
+    downloadState: DownloadState,
+    onBackClick: () -> Unit,
+    onOpenModelSelector: () -> Unit
 ) {
     Surface(
         color = ScreenBackground,
@@ -199,7 +264,7 @@ private fun ChatBotTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -221,31 +286,60 @@ private fun ChatBotTopBar(
                 }
             }
 
-            // Title & Subtitle Column
+            // Title & Active Model Selector Column
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Chat Bot",
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ModelStatusBadge(modelStatus = modelStatus)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    ModelStatusBadge(modelStatus = modelStatus, downloadState = downloadState)
                 }
-                Text(
-                    text = "On-Device AI • Google LiteRT-LM",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
+
+                // Clickable Model Selector Chip
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clickable { onOpenModelSelector() }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = when (downloadState) {
+                            is DownloadState.Downloading -> "Downloading (${downloadState.progressPercent}%)..."
+                            else -> activeModel?.displayName ?: "Choose Model"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = RustPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select Model",
+                        tint = RustPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
-            // Robot badge icon
+            // Robot badge icon (Clickable to open model selector)
             Surface(
+                onClick = onOpenModelSelector,
                 shape = RoundedCornerShape(12.dp),
                 color = BotBadgeBackground,
                 modifier = Modifier.size(42.dp)
@@ -253,7 +347,7 @@ private fun ChatBotTopBar(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Filled.SmartToy,
-                        contentDescription = "AI Companion",
+                        contentDescription = "Select Model",
                         tint = RustPrimary,
                         modifier = Modifier.size(22.dp)
                     )
@@ -264,16 +358,98 @@ private fun ChatBotTopBar(
 }
 
 /**
+ * Sticky Download Progress Banner at top of screen during background model downloading.
+ */
+@Composable
+private fun TopDownloadProgressBanner(
+    downloadState: DownloadState.Downloading,
+    onCancel: () -> Unit
+) {
+    Surface(
+        color = Color(0xFFFFF7ED),
+        border = BorderStroke(1.dp, Color(0xFFFFEDD5)),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDownload,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Downloading ${downloadState.model.displayName}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${downloadState.bytesDownloaded / 1_000_000} MB / ${downloadState.totalBytes / 1_000_000} MB (${downloadState.progressPercent}%)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = RustPrimary
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel Download",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LinearProgressIndicator(
+                progress = { downloadState.progressPercent / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = RustPrimary,
+                trackColor = Color(0xFFFED7AA)
+            )
+        }
+    }
+}
+
+/**
  * Compact pill badge indicating the on-device model status.
  */
 @Composable
-private fun ModelStatusBadge(modelStatus: ModelStatus) {
-    val (text, bgColor, textColor) = when (modelStatus) {
-        is ModelStatus.Ready -> Triple("Offline (${modelStatus.backend})", Color(0xFFE8F5E9), Color(0xFF2E7D32))
-        is ModelStatus.Initializing -> Triple("Loading...", Color(0xFFFFF3E0), Color(0xFFE65100))
-        is ModelStatus.NotDownloaded -> Triple("Model Required", Color(0xFFF3F4F6), Color(0xFF4B5563))
-        is ModelStatus.Checking -> Triple("Checking...", Color(0xFFF3F4F6), Color(0xFF4B5563))
-        is ModelStatus.Error -> Triple("Setup Issue", Color(0xFFFFEBEE), Color(0xFFC62828))
+private fun ModelStatusBadge(
+    modelStatus: ModelStatus,
+    downloadState: DownloadState
+) {
+    val (text, bgColor, textColor) = when {
+        downloadState is DownloadState.Downloading -> Triple("Downloading ${downloadState.progressPercent}%", Color(0xFFFFF3E0), Color(0xFFE65100))
+        modelStatus is ModelStatus.Ready -> Triple("Offline (${modelStatus.backend})", Color(0xFFE8F5E9), Color(0xFF2E7D32))
+        modelStatus is ModelStatus.Initializing -> Triple("Loading...", Color(0xFFFFF3E0), Color(0xFFE65100))
+        modelStatus is ModelStatus.NotDownloaded -> Triple("Model Required", Color(0xFFF3F4F6), Color(0xFF4B5563))
+        modelStatus is ModelStatus.Checking -> Triple("Checking...", Color(0xFFF3F4F6), Color(0xFF4B5563))
+        modelStatus is ModelStatus.Error -> Triple("Setup Issue", Color(0xFFFFEBEE), Color(0xFFC62828))
+        else -> Triple("Offline", Color(0xFFF3F4F6), Color(0xFF4B5563))
     }
 
     Surface(
@@ -291,14 +467,325 @@ private fun ModelStatusBadge(modelStatus: ModelStatus) {
 }
 
 /**
- * Setup and download card for On-Device LiteRT-LM models.
+ * Modal Bottom Sheet allowing user to choose, switch, or download on-device LLM models anytime.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSelectionBottomSheet(
+    availableModels: List<LiteRtModel>,
+    downloadedModelIds: Set<String>,
+    activeModel: LiteRtModel?,
+    modelStatus: ModelStatus,
+    downloadState: DownloadState,
+    onSelectModel: (LiteRtModel) -> Unit,
+    onForceCpuModel: (LiteRtModel) -> Unit,
+    onCancelDownload: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = CardBackground,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .navigationBarsPadding()
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Select On-Device AI Model",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Runs 100% locally on your phone",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // List of Models
+            availableModels.forEach { model ->
+                val isDownloaded = downloadedModelIds.contains(model.id)
+                val isActive = activeModel?.id == model.id && modelStatus is ModelStatus.Ready
+                val isInitializing = modelStatus is ModelStatus.Initializing && modelStatus.model?.id == model.id
+                val activeDownloadingState = downloadState as? DownloadState.Downloading
+                val isThisDownloading = activeDownloadingState?.model?.id == model.id
+
+                ModelSelectionCardItem(
+                    model = model,
+                    isDownloaded = isDownloaded,
+                    isActive = isActive,
+                    isInitializing = isInitializing,
+                    downloadState = if (isThisDownloading) activeDownloadingState else null,
+                    onSelect = { onSelectModel(model) },
+                    onForceCpu = { onForceCpuModel(model) },
+                    onCancelDownload = onCancelDownload
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * Individual model item inside the Model Selection sheet.
+ */
+@Composable
+private fun ModelSelectionCardItem(
+    model: LiteRtModel,
+    isDownloaded: Boolean,
+    isActive: Boolean,
+    isInitializing: Boolean,
+    downloadState: DownloadState.Downloading?,
+    onSelect: () -> Unit,
+    onForceCpu: () -> Unit,
+    onCancelDownload: () -> Unit
+) {
+    val borderColor = if (isActive) RustPrimary else CardBorder
+    val containerColor = if (isActive) Color(0xFFFFFBF5) else ScreenBackground
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        border = BorderStroke(if (isActive) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = model.displayName,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "(${model.formattedSize})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = model.description,
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Action Button / Status Badge
+                when {
+                    downloadState != null -> {
+                        // Currently Downloading this model
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${downloadState.progressPercent}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = RustPrimary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel",
+                                    tint = TextMuted,
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable { onCancelDownload() }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { downloadState.progressPercent / 100f },
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = RustPrimary,
+                                trackColor = Color(0xFFFED7AA)
+                            )
+                        }
+                    }
+
+                    isActive -> {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Active",
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "ACTIVE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    }
+
+                    isInitializing -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                color = RustPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Loading...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = RustPrimary
+                            )
+                        }
+                    }
+
+                    isDownloaded -> {
+                        // Model downloaded: Show "Select" / "Switch" button
+                        Button(
+                            onClick = onSelect,
+                            colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Select",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Select",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    else -> {
+                        // Model not downloaded: Show "Get Download" button
+                        Button(
+                            onClick = onSelect,
+                            colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = "Get Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Get Download",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            // CPU Fallback option if user wants forced CPU mode for stability
+            if (isDownloaded && !isActive && !isInitializing && downloadState == null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = "Load with CPU (Safe Mode)",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable { onForceCpu() }
+                            .padding(2.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Setup and download card for On-Device LiteRT-LM models shown in main screen body.
  */
 @Composable
 private fun OnDeviceModelCard(
     modelStatus: ModelStatus,
     downloadState: DownloadState,
-    onDownloadModel: (LiteRtModel) -> Unit,
-    onRefresh: () -> Unit
+    downloadedModelIds: Set<String>,
+    activeModel: LiteRtModel?,
+    onSelectModel: (LiteRtModel) -> Unit,
+    onLoadWithCpu: (LiteRtModel) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpenModelSelector: () -> Unit
 ) {
     var showAdbHint by rememberSaveable { mutableStateOf(false) }
 
@@ -367,71 +854,70 @@ private fun OnDeviceModelCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Download State Progress
-            if (downloadState is DownloadState.Downloading) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Downloading model weights...",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = RustPrimary
-                        )
-                        Text(
-                            text = "${downloadState.progressPercent}%",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = RustPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { downloadState.progressPercent / 100f },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp),
-                        color = RustPrimary,
-                        trackColor = Color(0xFFE5E7EB)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${downloadState.bytesDownloaded / 1_000_000} MB / ${downloadState.totalBytes / 1_000_000} MB",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                }
-            } else if (modelStatus is ModelStatus.Initializing) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            if (modelStatus is ModelStatus.Initializing) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
                     CircularProgressIndicator(
                         color = RustPrimary,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = modelStatus.info,
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = modelStatus.info,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Please wait a few seconds...",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
                 }
             } else {
-                // Model Download Options
-                Text(
-                    text = "AVAILABLE MODELS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp,
-                    color = TextSecondary
-                )
+                // Model Options Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "AVAILABLE MODELS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp,
+                        color = TextSecondary
+                    )
+
+                    Text(
+                        text = "View All →",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = RustPrimary,
+                        modifier = Modifier.clickable { onOpenModelSelector() }
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LiteRtModel.ALL_MODELS.forEach { model ->
+                    val isDownloaded = downloadedModelIds.contains(model.id)
+                    val isActive = activeModel?.id == model.id && modelStatus is ModelStatus.Ready
+                    val currentDownloadingState = downloadState as? DownloadState.Downloading
+                    val isThisDownloading = currentDownloadingState?.model?.id == model.id
+
                     ModelOptionRow(
                         model = model,
-                        onDownload = { onDownloadModel(model) }
+                        isDownloaded = isDownloaded,
+                        isActive = isActive,
+                        downloadState = if (isThisDownloading) currentDownloadingState else null,
+                        onSelect = { onSelectModel(model) },
+                        onCancelDownload = onCancelDownload
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -469,11 +955,50 @@ private fun OnDeviceModelCard(
 
             if (modelStatus is ModelStatus.Error) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Error: ${modelStatus.error}",
-                    fontSize = 12.sp,
-                    color = Color(0xFFDC2626)
-                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Initialization Error: ${modelStatus.error}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFDC2626)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (modelStatus.failedModel != null) {
+                                OutlinedButton(
+                                    onClick = { onLoadWithCpu(modelStatus.failedModel) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Memory,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Retry (CPU Mode)", fontSize = 11.sp)
+                                }
+                            }
+
+                            Button(
+                                onClick = onOpenModelSelector,
+                                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Select Other Model", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -482,12 +1007,16 @@ private fun OnDeviceModelCard(
 @Composable
 private fun ModelOptionRow(
     model: LiteRtModel,
-    onDownload: () -> Unit
+    isDownloaded: Boolean,
+    isActive: Boolean,
+    downloadState: DownloadState.Downloading?,
+    onSelect: () -> Unit,
+    onCancelDownload: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = ScreenBackground,
-        border = BorderStroke(1.dp, CardBorder),
+        border = BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) RustPrimary else CardBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -498,40 +1027,112 @@ private fun ModelOptionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${model.displayName} (${model.formattedSize})",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = model.displayName,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "(${model.formattedSize})",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
                 Text(
                     text = model.description,
                     fontSize = 11.sp,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Button(
-                onClick = onDownload,
-                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
-                    contentDescription = "Download",
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Get",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+            when {
+                downloadState != null -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${downloadState.progressPercent}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = RustPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = TextMuted,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onCancelDownload() }
+                        )
+                    }
+                }
+
+                isActive -> {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFE8F5E9)
+                    ) {
+                        Text(
+                            text = "ACTIVE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                isDownloaded -> {
+                    Button(
+                        onClick = onSelect,
+                        colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Select",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Select",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                else -> {
+                    Button(
+                        onClick = onSelect,
+                        colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Get Download",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Get Download",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
             }
         }
     }
@@ -722,14 +1323,6 @@ fun ChatBubbleItem(message: ChatBotMessage) {
 
 /**
  * Custom Markdown Formatted Text Renderer for Chat Bot messages.
- * Formats:
- * - **bold text** -> Bold
- * - *italic text* -> Italic
- * - `code` -> Monospace tag
- * - #, ##, ### -> Headings
- * - 1. , 2. -> Numbered list
- * - - , * -> Bullet point list
- * - --- -> Horizontal rule
  */
 @Composable
 fun FormattedMarkdownText(
@@ -945,10 +1538,11 @@ fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
 }
 
 /**
- * "A PLACE TO START" prompt suggestions matching Figma design.
+ * "A PLACE TO START" prompt suggestions displaying 3 dynamic or curated prompts.
  */
 @Composable
 private fun PlaceToStartSection(
+    prompts: List<String>,
     enabled: Boolean,
     onPromptClick: (String) -> Unit
 ) {
@@ -957,28 +1551,36 @@ private fun PlaceToStartSection(
             .fillMaxWidth()
             .padding(top = 16.dp)
     ) {
-        Text(
-            text = "A PLACE TO START",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
-            color = TextSecondary,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 12.dp)
-        )
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = "Suggestions",
+                tint = RustPrimary,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "A PLACE TO START",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.4.sp,
+                color = TextSecondary
+            )
+        }
 
-        PromptCard(
-            text = "Help me understand a headline",
-            enabled = enabled,
-            onClick = { onPromptClick("Help me understand a headline") }
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        PromptCard(
-            text = "Explain a business term",
-            enabled = enabled,
-            onClick = { onPromptClick("Explain a business term") }
-        )
+        prompts.take(3).forEachIndexed { index, promptText ->
+            if (index > 0) {
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+            PromptCard(
+                text = promptText,
+                enabled = enabled,
+                onClick = { onPromptClick(promptText) }
+            )
+        }
     }
 }
 
