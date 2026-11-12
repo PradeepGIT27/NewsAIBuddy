@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
+import com.support.tech.newsaibuddy.data.local.ChatConversation
+import com.support.tech.newsaibuddy.data.local.ChatHistoryManager
+import com.support.tech.newsaibuddy.data.local.toSerializable
 import com.support.tech.newsaibuddy.data.litertlm.DownloadState
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtLmService
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
@@ -23,13 +26,14 @@ import javax.inject.Inject
 
 /**
  * ViewModel for handling on-device AI chat interactions using Google LiteRT-LM.
- * Manages model downloading, initialization, switching, streaming generation, and UI state.
+ * Manages model downloading, initialization, switching, streaming generation, conversation history, and UI state.
  */
 @HiltViewModel
 class ChatBotViewModel @Inject constructor(
     private val liteRtModelManager: LiteRtModelManager,
     private val liteRtLmService: LiteRtLmService,
-    private val newsRepository: NewsRepository
+    private val newsRepository: NewsRepository,
+    private val chatHistoryManager: ChatHistoryManager
 ) : ViewModel() {
 
     private val initialWelcomeMessage = ChatBotMessage(
@@ -52,6 +56,18 @@ class ChatBotViewModel @Inject constructor(
     init {
         checkAndInitLocalModel()
         fetchDynamicStarterPrompts()
+        observeConversationHistory()
+    }
+
+    /**
+     * Observes local conversation history from DataStore.
+     */
+    private fun observeConversationHistory() {
+        viewModelScope.launch {
+            chatHistoryManager.conversations.collect { convList ->
+                _uiState.update { it.copy(conversations = convList) }
+            }
+        }
     }
 
     /**
@@ -119,6 +135,29 @@ class ChatBotViewModel @Inject constructor(
      */
     fun checkAndInitLocalModel() {
         refreshDownloadedModels()
+
+        // If Singleton LiteRtLmService already has an active engine in memory, restore state immediately
+        if (liteRtLmService.isReady && liteRtLmService.loadedModelPath != null) {
+            val loadedPath = liteRtLmService.loadedModelPath!!
+            val matchedModel = LiteRtModel.ALL_MODELS.find {
+                it.filename.equals(java.io.File(loadedPath).name, ignoreCase = true) ||
+                it.id == liteRtModelManager.getSelectedModelId()
+            }
+            if (matchedModel != null) {
+                _uiState.update {
+                    it.copy(
+                        modelStatus = ModelStatus.Ready(
+                            backend = liteRtLmService.activeBackend ?: "CPU",
+                            modelPath = loadedPath,
+                            activeModel = matchedModel
+                        ),
+                        activeModel = matchedModel
+                    )
+                }
+                return
+            }
+        }
+
         val existingModelFile = liteRtModelManager.findExistingModelFile()
         if (existingModelFile != null && existingModelFile.exists()) {
             val matchedModel = LiteRtModel.ALL_MODELS.find {
@@ -241,8 +280,131 @@ class ChatBotViewModel @Inject constructor(
         _uiState.update { it.copy(showModelSelectorSheet = show) }
     }
 
+    fun toggleHistorySheet(show: Boolean) {
+        _uiState.update { it.copy(showHistorySheet = show) }
+    }
+
+    fun updateHistorySearchQuery(query: String) {
+        _uiState.update { it.copy(historySearchQuery = query) }
+    }
+
+    fun setConversationToDelete(conversation: ChatConversation?) {
+        _uiState.update { it.copy(conversationToDelete = conversation) }
+    }
+
+    fun setShowClearAllDialog(show: Boolean) {
+        _uiState.update { it.copy(showClearAllDialog = show) }
+    }
+
+    /**
+     * Resets active chat screen state and model context to start a fresh conversation.
+     */
+    fun startNewConversation() {
+        viewModelScope.launch {
+            liteRtLmService.resetConversation()
+            _uiState.update {
+                it.copy(
+                    currentConversationId = null,
+                    currentConversationTitle = "New Conversation",
+                    messages = listOf(initialWelcomeMessage),
+                    showHistorySheet = false
+                )
+            }
+        }
+    }
+
+    /**
+     * Loads an existing conversation thread from history.
+     */
+    fun loadConversation(conversation: ChatConversation) {
+        viewModelScope.launch {
+            liteRtLmService.resetConversation()
+            val domainMsgs = conversation.toDomainMessages()
+            val messagesToDisplay = domainMsgs.ifEmpty { listOf(initialWelcomeMessage) }
+
+            _uiState.update {
+                it.copy(
+                    currentConversationId = conversation.id,
+                    currentConversationTitle = conversation.title,
+                    messages = messagesToDisplay,
+                    showHistorySheet = false
+                )
+            }
+        }
+    }
+
+    /**
+     * Deletes a specific conversation entry from local history.
+     */
+    fun deleteConversation(conversationId: String) {
+        viewModelScope.launch {
+            chatHistoryManager.deleteConversation(conversationId)
+            _uiState.update { it.copy(conversationToDelete = null) }
+
+            if (_uiState.value.currentConversationId == conversationId) {
+                startNewConversation()
+            }
+        }
+    }
+
+    /**
+     * Clears all saved conversation history from device storage.
+     */
+    fun clearAllHistory() {
+        viewModelScope.launch {
+            chatHistoryManager.clearAllHistory()
+            _uiState.update { it.copy(showClearAllDialog = false) }
+            startNewConversation()
+        }
+    }
+
+    /**
+     * Generates a concise title for a conversation based on the user's first prompt.
+     */
+    private fun generateConversationTitle(prompt: String): String {
+        val cleaned = prompt.trim().replace("\n", " ")
+        return if (cleaned.length > 35) {
+            cleaned.take(32) + "..."
+        } else {
+            cleaned.ifBlank { "New Conversation" }
+        }
+    }
+
+    /**
+     * Auto-saves or updates the active conversation entry in local storage.
+     */
+    private suspend fun autoSaveConversation(messages: List<ChatBotMessage>, firstUserText: String) {
+        val currentState = _uiState.value
+        val convId = currentState.currentConversationId ?: UUID.randomUUID().toString()
+        val convTitle = if (currentState.currentConversationId == null || currentState.currentConversationTitle == "New Conversation") {
+            generateConversationTitle(firstUserText)
+        } else {
+            currentState.currentConversationTitle
+        }
+
+        if (currentState.currentConversationId == null) {
+            _uiState.update {
+                it.copy(
+                    currentConversationId = convId,
+                    currentConversationTitle = convTitle
+                )
+            }
+        }
+
+        val conversationToSave = ChatConversation(
+            id = convId,
+            title = convTitle,
+            updatedAt = System.currentTimeMillis(),
+            messages = messages.map { it.toSerializable() },
+            modelId = currentState.activeModel?.id
+        )
+
+        chatHistoryManager.saveOrUpdateConversation(conversationToSave)
+    }
+
     /**
      * Sends a prompt to the LiteRT-LM engine and streams the generated response.
+     * Automatically saves each conversation and message to local offline history.
      */
     fun sendMessage(userText: String) {
         if (userText.isBlank() || _uiState.value.isGenerating) return
@@ -261,14 +423,19 @@ class ChatBotViewModel @Inject constructor(
             isPending = true
         )
 
+        val newMessagesList = _uiState.value.messages + userMessage + modelPendingMessage
+
         _uiState.update { current ->
             current.copy(
-                messages = current.messages + userMessage + modelPendingMessage,
+                messages = newMessagesList,
                 isGenerating = true
             )
         }
 
         viewModelScope.launch {
+            // Save initial user message & pending bot state
+            autoSaveConversation(newMessagesList, userText)
+
             try {
                 var accumulatedResponse = ""
                 liteRtLmService.sendMessageStream(userText.trim()).collect { token ->
@@ -303,13 +470,16 @@ class ChatBotViewModel @Inject constructor(
                 }
             } finally {
                 _uiState.update { it.copy(isGenerating = false) }
+                // Save final state with complete bot response to local history
+                autoSaveConversation(_uiState.value.messages, userText)
             }
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        liteRtLmService.close()
+        // Do not call liteRtLmService.close() here as liteRtLmService is a @Singleton.
+        // Keeping it active preserves the loaded model in memory when switching tabs.
     }
 
     companion object {

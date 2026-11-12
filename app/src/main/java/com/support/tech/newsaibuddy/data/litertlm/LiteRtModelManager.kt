@@ -169,9 +169,13 @@ class LiteRtModelManager @Inject constructor(
         }
 
         if (successfulResponse == null) {
-            val errorText = if (lastErrorCode != -1) "HTTP $lastErrorCode" else "Network error"
-            Log.e(TAG, "Failed to connect to any download candidate URLs for ${model.displayName}")
-            emit(DownloadState.Failed("Download server error ($errorText). Please try again.", model))
+            val errorText = when (lastErrorCode) {
+                401, 403 -> "HTTP $lastErrorCode: Restricted or Gated Repository. Please choose an un-gated model like Qwen 3 or Gemma 4."
+                404 -> "HTTP 404: Model file URL not found on Hugging Face CDN."
+                else -> if (lastErrorCode != -1) "HTTP $lastErrorCode" else "Network Connection Failed"
+            }
+            Log.e(TAG, "Failed to connect to download candidate URLs for ${model.displayName}: $errorText")
+            emit(DownloadState.Failed("Download failed ($errorText).", model))
             return@flow
         }
 

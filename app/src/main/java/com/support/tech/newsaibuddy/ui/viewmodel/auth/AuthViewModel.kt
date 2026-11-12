@@ -8,11 +8,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-import kotlinx.coroutines.flow.map
 
 /**
  * Holds the current user profile data.
@@ -25,8 +24,8 @@ data class UserProfile(
 )
 
 /**
- * ViewModel managing authentication state using Google Sign-In via Credential Manager.
- * Session is persisted in DataStore so it survives app restarts.
+ * ViewModel managing authentication state and user preference settings (such as Dark Mode).
+ * Session & preferences are persisted in DataStore so they survive app restarts.
  */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
@@ -37,6 +36,10 @@ class AuthViewModel @Inject constructor(
     val isLoggedIn: StateFlow<Boolean?> = userSessionManager.isLoggedIn
         .map<Boolean, Boolean?> { it }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Dark mode theme setting: "system" (default), "light", or "dark". */
+    val darkModeSetting: StateFlow<String> = userSessionManager.darkModeSetting
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "system")
 
     private val _userProfile = MutableStateFlow(UserProfile())
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
@@ -68,6 +71,15 @@ class AuthViewModel @Inject constructor(
             userSessionManager.userId.collect { id ->
                 _userProfile.value = _userProfile.value.copy(userId = id)
             }
+        }
+    }
+
+    /**
+     * Updates dark mode setting ("system", "light", or "dark") and persists it.
+     */
+    fun setDarkModeSetting(setting: String) {
+        viewModelScope.launch {
+            userSessionManager.setDarkModeSetting(setting)
         }
     }
 

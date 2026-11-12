@@ -20,23 +20,33 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -54,6 +64,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -84,6 +95,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
+import com.support.tech.newsaibuddy.data.local.ChatConversation
 import com.support.tech.newsaibuddy.data.litertlm.DownloadState
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
 import com.support.tech.newsaibuddy.ui.theme.BotAvatarBg
@@ -99,10 +111,14 @@ import com.support.tech.newsaibuddy.ui.theme.UserBubbleBackground
 import com.support.tech.newsaibuddy.ui.theme.UserBubbleBorder
 import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ChatBotViewModel
 import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ModelStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * ChatBot Screen powered by Google LiteRT-LM (On-Device LLM):
- * - Top header with back button, model picker selector, status badge & bot avatar
+ * - Top header with back button, history drawer toggle, "+ New Chat" button & model picker selector
+ * - Offline local conversation history with drawer sheet & auto-saving capability
  * - Sticky Top Download Progress Banner when downloading in background
  * - Model Selection Modal BottomSheet allowing users to change or download models anytime
  * - "NEW CONVERSATION" divider
@@ -135,8 +151,11 @@ fun ChatBotScreen(
                 modelStatus = chatUiState.modelStatus,
                 activeModel = chatUiState.activeModel,
                 downloadState = chatUiState.downloadState,
+                conversationCount = chatUiState.conversations.size,
                 onBackClick = { navController.popBackStack() },
-                onOpenModelSelector = { chatViewModel.toggleModelSelector(true) }
+                onOpenModelSelector = { chatViewModel.toggleModelSelector(true) },
+                onOpenHistory = { chatViewModel.toggleHistorySheet(true) },
+                onNewChat = { chatViewModel.startNewConversation() }
             )
         },
         bottomBar = {
@@ -163,7 +182,10 @@ fun ChatBotScreen(
             }
 
             // "NEW CONVERSATION" Divider
-            NewConversationDivider()
+            NewConversationDivider(
+                title = chatUiState.currentConversationTitle,
+                onNewChatClick = { chatViewModel.startNewConversation() }
+            )
 
             // Chat messages list
             LazyColumn(
@@ -242,18 +264,118 @@ fun ChatBotScreen(
             }
         )
     }
+
+    // Offline History Modal Bottom Sheet
+    if (chatUiState.showHistorySheet) {
+        HistoryBottomSheet(
+            conversations = chatUiState.conversations,
+            currentConversationId = chatUiState.currentConversationId,
+            searchQuery = chatUiState.historySearchQuery,
+            onSearchQueryChange = { chatViewModel.updateHistorySearchQuery(it) },
+            onSelectConversation = { conv ->
+                chatViewModel.loadConversation(conv)
+            },
+            onStartNewChat = {
+                chatViewModel.startNewConversation()
+            },
+            onDeleteConversation = { conv ->
+                chatViewModel.setConversationToDelete(conv)
+            },
+            onClearAllClick = {
+                chatViewModel.setShowClearAllDialog(true)
+            },
+            onDismiss = {
+                chatViewModel.toggleHistorySheet(false)
+            }
+        )
+    }
+
+    // Single Conversation Delete Confirmation Dialog
+    chatUiState.conversationToDelete?.let { convToDelete ->
+        AlertDialog(
+            onDismissRequest = { chatViewModel.setConversationToDelete(null) },
+            title = {
+                Text(
+                    text = "Delete Conversation?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete \"${convToDelete.title}\"? This conversation will be permanently removed from offline history.",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { chatViewModel.deleteConversation(convToDelete.id) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chatViewModel.setConversationToDelete(null) }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Clear All History Confirmation Dialog
+    if (chatUiState.showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { chatViewModel.setShowClearAllDialog(false) },
+            title = {
+                Text(
+                    text = "Clear All History?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "This will delete all ${chatUiState.conversations.size} saved conversations from local device storage.",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { chatViewModel.clearAllHistory() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Clear All", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chatViewModel.setShowClearAllDialog(false) }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
 }
 
 /**
- * Top App Bar with title, active model selector chip, on-device status badge & robot icon.
+ * Top App Bar with title, history icon, new chat button & active model selector chip.
  */
 @Composable
 private fun ChatBotTopBar(
     modelStatus: ModelStatus,
     activeModel: LiteRtModel?,
     downloadState: DownloadState,
+    conversationCount: Int,
     onBackClick: () -> Unit,
-    onOpenModelSelector: () -> Unit
+    onOpenModelSelector: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onNewChat: () -> Unit
 ) {
     Surface(
         color = ScreenBackground,
@@ -264,7 +386,7 @@ private fun ChatBotTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -290,12 +412,12 @@ private fun ChatBotTopBar(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Chat Bot",
-                        fontSize = 20.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -337,20 +459,54 @@ private fun ChatBotTopBar(
                 }
             }
 
-            // Robot badge icon (Clickable to open model selector)
-            Surface(
-                onClick = onOpenModelSelector,
-                shape = RoundedCornerShape(12.dp),
-                color = BotBadgeBackground,
-                modifier = Modifier.size(42.dp)
+            // Action Buttons Row: History Drawer & "+ New" Chat
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Filled.SmartToy,
-                        contentDescription = "Select Model",
-                        tint = RustPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                // History Drawer Button with counter badge
+                Surface(
+                    onClick = onOpenHistory,
+                    shape = RoundedCornerShape(12.dp),
+                    color = CardBackground,
+                    border = BorderStroke(1.dp, CardBorder),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = "History",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (conversationCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(8.dp)
+                                    .background(RustPrimary, CircleShape)
+                            )
+                        }
+                    }
+                }
+
+                // "+ New Chat" Button
+                Surface(
+                    onClick = onNewChat,
+                    shape = RoundedCornerShape(12.dp),
+                    color = BotBadgeBackground,
+                    border = BorderStroke(1.dp, UserBubbleBorder),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Chat",
+                            tint = RustPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -463,6 +619,368 @@ private fun ModelStatusBadge(
             color = textColor,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
+    }
+}
+
+/**
+ * Offline Conversation History Bottom Sheet displaying saved chats with search & delete actions.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistoryBottomSheet(
+    conversations: List<ChatConversation>,
+    currentConversationId: String?,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSelectConversation: (ChatConversation) -> Unit,
+    onStartNewChat: () -> Unit,
+    onDeleteConversation: (ChatConversation) -> Unit,
+    onClearAllClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val filteredConversations = if (searchQuery.isBlank()) {
+        conversations
+    } else {
+        conversations.filter { conv ->
+            conv.title.contains(searchQuery, ignoreCase = true) ||
+            conv.messages.any { msg -> msg.text.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = CardBackground,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .navigationBarsPadding()
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Conversation History",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${conversations.size} offline chats saved",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (conversations.isNotEmpty()) {
+                        IconButton(onClick = onClearAllClick) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = "Clear All History",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Row: "+ Start New Conversation" Button
+            Button(
+                onClick = {
+                    onStartNewChat()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Start New Conversation",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Search Bar
+            if (conversations.isNotEmpty()) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text("Search chat history...", fontSize = 13.sp, color = TextMuted) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear Search",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = ScreenBackground,
+                        unfocusedContainerColor = ScreenBackground,
+                        focusedBorderColor = RustPrimary,
+                        unfocusedBorderColor = CardBorder
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // Notice Banner about offline storage
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFFFFBEB),
+                border = BorderStroke(1.dp, UserBubbleBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "History is stored 100% locally on device. Clearing app cache or uninstalling will remove history.",
+                        fontSize = 11.sp,
+                        color = TextPrimary,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Conversations List or Empty State
+            if (filteredConversations.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Forum,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No matching conversations found" else "No conversation history yet",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "Each chat is automatically saved locally.",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp)
+                ) {
+                    items(filteredConversations, key = { it.id }) { conversation ->
+                        val isSelected = conversation.id == currentConversationId
+                        HistoryConversationItem(
+                            conversation = conversation,
+                            isSelected = isSelected,
+                            onSelect = { onSelectConversation(conversation) },
+                            onDelete = { onDeleteConversation(conversation) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * Individual Conversation Item card inside the History sheet.
+ */
+@Composable
+private fun HistoryConversationItem(
+    conversation: ChatConversation,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val borderColor = if (isSelected) RustPrimary else CardBorder
+    val containerColor = if (isSelected) Color(0xFFFFFBF5) else ScreenBackground
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon Badge
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = if (isSelected) RustPrimary else Color(0xFFF3F4F6),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = null,
+                    tint = if (isSelected) Color.White else TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Main Details
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = conversation.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formatRelativeTime(conversation.updatedAt),
+                        fontSize = 11.sp,
+                        color = TextMuted
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                val lastMessage = conversation.messages.lastOrNull()?.text ?: ""
+                Text(
+                    text = if (lastMessage.isNotBlank()) lastMessage else "${conversation.messages.size} messages",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Trash / Delete Icon Button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete Conversation",
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val seconds = diff / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    val days = hours / 24
+
+    return when {
+        diff < 0 || seconds < 60 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days == 1L -> "Yesterday"
+        days < 7 -> "${days}d ago"
+        else -> {
+            val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+            sdf.format(Date(timestamp))
+        }
     }
 }
 
@@ -1139,10 +1657,13 @@ private fun ModelOptionRow(
 }
 
 /**
- * Centered "NEW CONVERSATION" divider line.
+ * Centered "NEW CONVERSATION" divider line with current title & quick start chip.
  */
 @Composable
-private fun NewConversationDivider() {
+private fun NewConversationDivider(
+    title: String,
+    onNewChatClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1154,14 +1675,36 @@ private fun NewConversationDivider() {
             color = CardBorder,
             thickness = 1.dp
         )
-        Text(
-            text = "NEW CONVERSATION",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
-            color = TextSecondary,
-            modifier = Modifier.padding(horizontal = 14.dp)
-        )
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = ScreenBackground,
+            border = BorderStroke(1.dp, CardBorder),
+            modifier = Modifier
+                .padding(horizontal = 10.dp)
+                .clickable { onNewChatClick() }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = title.uppercase(Locale.getDefault()),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                    color = RustPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "New Chat",
+                    tint = RustPrimary,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
         HorizontalDivider(
             modifier = Modifier.weight(1f),
             color = CardBorder,
@@ -1610,12 +2153,13 @@ private fun PromptCard(
                 text = text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (enabled) TextPrimary else TextMuted
+                color = if (enabled) TextPrimary else TextMuted,
+                modifier = Modifier.weight(1f)
             )
 
             Icon(
                 imageVector = Icons.Default.ArrowOutward,
-                contentDescription = null,
+                contentDescription = "Send Prompt",
                 tint = if (enabled) RustPrimary else TextMuted,
                 modifier = Modifier.size(18.dp)
             )
@@ -1624,7 +2168,7 @@ private fun PromptCard(
 }
 
 /**
- * Bottom Input Bar with Upward Arrow Send Button & Disclaimer.
+ * Bottom Input Bar with rust circle send button and on-device privacy badge.
  */
 @Composable
 private fun ChatBotInputSection(
@@ -1632,78 +2176,75 @@ private fun ChatBotInputSection(
     isGenerating: Boolean,
     onSendMessage: (String) -> Unit
 ) {
-    var text by rememberSaveable { mutableStateOf("") }
-    val canSend = isReady && !isGenerating && text.isNotBlank()
+    var inputText by rememberSaveable { mutableStateOf("") }
 
     Surface(
-        color = CardBackground,
-        shadowElevation = 8.dp
+        color = ScreenBackground,
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Text Input Field
+                // Rounded Input Text Field
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = inputText,
+                    onValueChange = { inputText = it },
                     placeholder = {
                         Text(
-                            text = if (isReady) "Ask on-device AI anything..." else "Setup or download model to start...",
-                            fontSize = 15.sp,
-                            color = TextMuted
+                            text = if (isReady) "Ask NewsAIBuddy..." else "Load a model to start chat...",
+                            color = TextMuted,
+                            fontSize = 15.sp
                         )
                     },
                     enabled = isReady && !isGenerating,
+                    singleLine = false,
+                    maxLines = 4,
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Send
                     ),
                     keyboardActions = KeyboardActions(
                         onSend = {
-                            if (canSend) {
-                                onSendMessage(text.trim())
-                                text = ""
+                            if (inputText.isNotBlank() && isReady && !isGenerating) {
+                                onSendMessage(inputText)
+                                inputText = ""
                             }
                         }
                     ),
-                    shape = RoundedCornerShape(14.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(color = TextPrimary, fontSize = 15.sp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        disabledTextColor = TextSecondary,
-                        cursorColor = RustPrimary,
+                        focusedContainerColor = CardBackground,
+                        unfocusedContainerColor = CardBackground,
+                        disabledContainerColor = Color(0xFFF3F4F6),
                         focusedBorderColor = RustPrimary,
                         unfocusedBorderColor = CardBorder,
-                        focusedContainerColor = CardBackground,
-                        unfocusedContainerColor = CardBackground
+                        disabledBorderColor = CardBorder
                     ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp)
+                    modifier = Modifier.weight(1f)
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-                // Upward Arrow Send Button
+                // Rust Circle Upward-Arrow Send Button
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (canSend) RustPrimary else RustPrimary.copy(alpha = 0.4f),
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clickable(enabled = canSend) {
-                            if (canSend) {
-                                onSendMessage(text.trim())
-                                text = ""
-                            }
+                    onClick = {
+                        if (inputText.isNotBlank() && isReady && !isGenerating) {
+                            onSendMessage(inputText)
+                            inputText = ""
                         }
+                    },
+                    enabled = inputText.isNotBlank() && isReady && !isGenerating,
+                    shape = CircleShape,
+                    color = if (inputText.isNotBlank() && isReady && !isGenerating) RustPrimary else Color(0xFFE5E7EB),
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (isGenerating) {
@@ -1714,26 +2255,37 @@ private fun ChatBotInputSection(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Filled.ArrowUpward,
+                                imageVector = Icons.Default.ArrowUpward,
                                 contentDescription = "Send",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                tint = if (inputText.isNotBlank() && isReady && !isGenerating) Color.White else TextMuted,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // AI Disclaimer Text
-            Text(
-                text = "100% On-Device AI • No data leaves your phone • Verify important info",
-                fontSize = 11.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Subtitle status badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Runs 100% on-device via LiteRT-LM • Zero data leaves phone",
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+            }
         }
     }
 }

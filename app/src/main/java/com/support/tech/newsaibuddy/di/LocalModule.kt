@@ -1,6 +1,7 @@
 package com.support.tech.newsaibuddy.di
 
 import android.content.Context
+import com.support.tech.newsaibuddy.data.local.ChatHistoryManager
 import com.support.tech.newsaibuddy.data.local.SavedArticlesManager
 import com.support.tech.newsaibuddy.data.local.UserSessionManager
 import dagger.Module
@@ -28,4 +29,10 @@ object LocalModule {
     fun provideSavedArticlesManager(
         @ApplicationContext context: Context
     ): SavedArticlesManager = SavedArticlesManager(context)
+
+    @Provides
+    @Singleton
+    fun provideChatHistoryManager(
+        @ApplicationContext context: Context
+    ): ChatHistoryManager = ChatHistoryManager(context)
 }

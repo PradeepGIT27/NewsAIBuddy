@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.map
 private val Context.userDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_session")
 
 /**
- * Manages user session data using DataStore Preferences.
- * Handles login state persistence so the session survives app close/open.
+ * Manages user session data and preferences using DataStore Preferences.
+ * Handles login state and dark mode theme preferences so they survive app restarts.
  */
 class UserSessionManager(private val context: Context) {
 
@@ -24,6 +24,7 @@ class UserSessionManager(private val context: Context) {
         private val KEY_EMAIL = stringPreferencesKey("email")
         private val KEY_PHOTO_URL = stringPreferencesKey("photo_url")
         private val KEY_USER_ID = stringPreferencesKey("user_id")
+        private val KEY_DARK_MODE_SETTING = stringPreferencesKey("dark_mode_setting")
     }
 
     val isLoggedIn: Flow<Boolean> = context.userDataStore.data.map { prefs ->
@@ -46,6 +47,19 @@ class UserSessionManager(private val context: Context) {
         prefs[KEY_USER_ID] ?: ""
     }
 
+    /**
+     * Dark mode setting: "system" (default), "light", or "dark".
+     */
+    val darkModeSetting: Flow<String> = context.userDataStore.data.map { prefs ->
+        prefs[KEY_DARK_MODE_SETTING] ?: "system"
+    }
+
+    suspend fun setDarkModeSetting(setting: String) {
+        context.userDataStore.edit { prefs ->
+            prefs[KEY_DARK_MODE_SETTING] = setting
+        }
+    }
+
     suspend fun saveSession(
         displayName: String,
         email: String,
@@ -63,7 +77,12 @@ class UserSessionManager(private val context: Context) {
 
     suspend fun clearSession() {
         context.userDataStore.edit { prefs ->
+            // Clear user credentials but preserve app appearance preferences
+            val currentDarkMode = prefs[KEY_DARK_MODE_SETTING]
             prefs.clear()
+            if (currentDarkMode != null) {
+                prefs[KEY_DARK_MODE_SETTING] = currentDarkMode
+            }
         }
     }
 }
