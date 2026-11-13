@@ -1958,7 +1958,7 @@ fun FormattedMarkdownText(
                     }
                 }
 
-                // Numbered list items: 1. , 2. , 10. , etc.
+                // Numbered list items: 1.  2.  10.  etc.
                 trimmedLine.matches(Regex("^\\d+\\.\\s+.*$")) -> {
                     val dotIndex = trimmedLine.indexOf('.')
                     val numberStr = trimmedLine.substring(0, dotIndex + 1)
