@@ -3,11 +3,7 @@ name: Android CI/CD Pipeline (Master Release)
 on:
   push:
     branches:
-      - '**' # Trigger CI on push to any branch
-  pull_request:
-    branches:
-      - master # Trigger CI on PRs targeting master
-      - '**'
+      - master # Trigger ONLY when code is merged or pushed to master
   workflow_dispatch:
     inputs:
       release_to_play_store:
