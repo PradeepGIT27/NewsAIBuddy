@@ -88,10 +88,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
@@ -1688,7 +1689,7 @@ private fun NewConversationDivider(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = title.uppercase(Locale.getDefault()),
+                    text = title.uppercase(LocalLocale.current.platformLocale),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp,
