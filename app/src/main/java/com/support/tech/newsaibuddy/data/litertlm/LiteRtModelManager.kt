@@ -186,7 +186,7 @@ class LiteRtModelManager @Inject constructor(
 
                 try {
                     val response = call.execute()
-                    if ((response.isSuccessful || response.code == 206) && response.body != null) {
+                    if (response.isSuccessful || response.code == 206) {
                         successfulResponse = response
                         Log.d(TAG, "Established successful download stream from: $url (HTTP ${response.code})")
                         break

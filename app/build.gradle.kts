@@ -23,8 +23,8 @@ android {
         val trimmed = key.trim()
         return if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) trimmed else "\"$trimmed\""
     }
-    val botKey = formatKey(properties.getProperty("botKey"))
-    val newsKey = formatKey(properties.getProperty("newsKey"))
+    val botKey = formatKey(System.getenv("BOT_KEY") ?: properties.getProperty("botKey"))
+    val newsKey = formatKey(System.getenv("NEWS_KEY") ?: properties.getProperty("newsKey"))
 
     val envVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
         ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
