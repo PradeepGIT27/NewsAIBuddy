@@ -3,10 +3,10 @@ package com.support.tech.newsaibuddy.ui.screens.news
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
@@ -48,8 +50,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,6 +64,7 @@ import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.domain.model.NewsCategory
 import com.support.tech.newsaibuddy.ui.components.AppLoader
 import com.support.tech.newsaibuddy.ui.components.EmptyStateComponent
+import com.support.tech.newsaibuddy.ui.components.NetworkErrorComponent
 import com.support.tech.newsaibuddy.ui.components.NewsCardView
 import com.support.tech.newsaibuddy.ui.screens.profile.ProfileScreen
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
@@ -84,13 +89,15 @@ fun NewsScreen(
     val pagerState = rememberPagerState(initialPage = 0) { categories.size }
     val coroutineScope = rememberCoroutineScope()
     val uiState by newsViewModel.uiState.collectAsState()
-    val scrollState = rememberScrollState()
+    val categoryListState = rememberLazyListState()
 
     // 0 = News, 1 = Saved, 2 = Chat Bot, 3 = Profile
     var selectedBottomNavIndex by rememberSaveable { mutableIntStateOf(0) }
 
-    LaunchedEffect(pagerState.currentPage) {
-        val category = categories[pagerState.currentPage].categoryValue
+    LaunchedEffect(pagerState.settledPage) {
+        val settledIndex = pagerState.settledPage
+        categoryListState.animateScrollToItem(settledIndex)
+        val category = categories[settledIndex].categoryValue
         newsViewModel.getNewsByCategory(category)
     }
 
@@ -158,12 +165,11 @@ fun NewsScreen(
 
                             // Rounded Search Button
                             Surface(
+                                onClick = { newsViewModel.toggleSearchActive() },
                                 shape = RoundedCornerShape(12.dp),
                                 color = CardBackground,
                                 border = BorderStroke(1.dp, CardBorder),
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clickable { newsViewModel.toggleSearchActive() }
+                                modifier = Modifier.size(44.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
@@ -185,7 +191,11 @@ fun NewsScreen(
                                 placeholder = { Text("Search stories...", color = TextMuted) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),
+                                textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
                                 colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    cursorColor = RustPrimary,
                                     focusedBorderColor = RustPrimary,
                                     unfocusedBorderColor = CardBorder,
                                     focusedContainerColor = CardBackground,
@@ -233,24 +243,28 @@ fun NewsScreen(
                     } else {
                         // NEWS STORIES VIEW (selectedBottomNavIndex == 0)
 
-                        // Category Chips (Horizontal Scrollable)
-                        Row(
+                        // Category Chips (Horizontal Scrollable with auto-scroll to view)
+                        val activeCategoryIndex = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
+
+                        LazyRow(
+                            state = categoryListState,
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(scrollState)
-                                .padding(horizontal = 20.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(vertical = 4.dp)
                         ) {
-                            categories.forEachIndexed { index, category ->
-                                val isSelected = pagerState.currentPage == index
+                            itemsIndexed(categories) { index, category ->
+                                val isSelected = activeCategoryIndex == index
                                 CategoryChip(
                                     label = category.displayName,
                                     isSelected = isSelected,
                                     onClick = {
+                                        newsViewModel.getNewsByCategory(category.categoryValue)
                                         coroutineScope.launch {
+                                            categoryListState.animateScrollToItem(index)
                                             pagerState.animateScrollToPage(index)
                                         }
-                                        newsViewModel.getNewsByCategory(category.categoryValue)
                                     }
                                 )
                             }
@@ -259,7 +273,7 @@ fun NewsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Section Header (e.g., "Business" + "4 stories")
-                        val currentCategory = categories[pagerState.currentPage]
+                        val currentCategory = categories[activeCategoryIndex]
                         val resourceState = uiState.getStateForCategory(currentCategory.categoryValue)
                         val articleCount = (resourceState as? ResourceState.Success)?.data?.size ?: 0
 
@@ -317,7 +331,13 @@ fun NewsScreen(
                                     }
                                 }
                                 is ResourceState.Error -> {
-                                    EmptyStateComponent(state.error.ifBlank { "Failed to load news. Check network connection." })
+                                    val categoryKey = categories[page].categoryValue
+                                    NetworkErrorComponent(
+                                        message = state.error.ifBlank { "No internet connection. Please check your network and try again." },
+                                        onRetry = {
+                                            newsViewModel.getNewsByCategory(categoryKey, forceRefresh = true)
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -338,10 +358,10 @@ fun CategoryChip(
     onClick: () -> Unit
 ) {
     Surface(
+        onClick = onClick,
         shape = RoundedCornerShape(20.dp),
         color = if (isSelected) RustPrimary else CardBackground,
-        border = if (isSelected) null else BorderStroke(1.dp, CardBorder),
-        modifier = Modifier.clickable(onClick = onClick)
+        border = if (isSelected) null else BorderStroke(1.dp, CardBorder)
     ) {
         Text(
             text = label,
@@ -422,6 +442,7 @@ private fun BottomNavItem(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {

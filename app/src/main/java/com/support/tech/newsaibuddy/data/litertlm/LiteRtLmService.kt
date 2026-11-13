@@ -10,6 +10,7 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -21,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.Executors
 import javax.inject.Inject
@@ -30,14 +32,18 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Service managing the on-device LiteRT-LM Engine and Conversation lifecycles.
  * Executes model operations on a dedicated single-thread executor as required by LiteRT-LM.
+ * Features strict initialization timeouts to prevent app unresponsive/hanging states.
  */
 @Singleton
 class LiteRtLmService @Inject constructor(
     @ApplicationContext private val context: Context
 ) : AutoCloseable {
 
-    private val executor = Executors.newSingleThreadExecutor()
-    private val dispatcher = executor.asCoroutineDispatcher()
+    @Volatile
+    private var executor = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var dispatcher = executor.asCoroutineDispatcher()
+
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val mutex = Mutex()
 
@@ -53,6 +59,15 @@ class LiteRtLmService @Inject constructor(
 
     val isReady: Boolean
         get() = engine != null && conversation != null
+
+    @Synchronized
+    private fun getDispatcher(): CoroutineDispatcher {
+        if (executor.isShutdown || executor.isTerminated) {
+            executor = Executors.newSingleThreadExecutor()
+            dispatcher = executor.asCoroutineDispatcher()
+        }
+        return dispatcher
+    }
 
     /**
      * Checks if the current device can safely run GPU OpenCL kernels for LiteRT-LM.
@@ -75,13 +90,13 @@ class LiteRtLmService @Inject constructor(
     }
 
     /**
-     * Initializes the LiteRT-LM engine and conversation off the main thread.
+     * Initializes the LiteRT-LM engine and conversation off the main thread with timeouts.
      * Uses CPU backend on devices with known OpenCL driver issues (like S25 Ultra),
-     * and attempts GPU with CPU fallback on compatible devices.
+     * or when forceCpu is true, and attempts GPU with CPU fallback on compatible devices.
      */
-    suspend fun initialize(modelPath: String): Result<String> = withContext(dispatcher) {
+    suspend fun initialize(modelPath: String, forceCpu: Boolean = false): Result<String> = withContext(getDispatcher()) {
         mutex.withLock {
-            if (engine != null && loadedModelPath == modelPath) {
+            if (engine != null && loadedModelPath == modelPath && (forceCpu == (activeBackend == "CPU"))) {
                 return@withLock Result.success(activeBackend ?: "Ready")
             }
 
@@ -95,57 +110,90 @@ class LiteRtLmService @Inject constructor(
             var loadedEngine: Engine? = null
             var backendUsed = "CPU"
 
-            // Try GPU first only if safe for this device architecture
-            if (isGpuSafe()) {
-                try {
-                    Log.d(TAG, "Attempting to initialize LiteRT-LM engine with GPU backend...")
-                    val gpuConfig = EngineConfig(
-                        modelPath = modelPath,
-                        backend = Backend.GPU(),
-                        cacheDir = context.cacheDir.path
-                    )
-                    loadedEngine = Engine(gpuConfig).also { it.initialize() }
-                    backendUsed = "GPU"
-                    Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
-                } catch (gpuError: Throwable) {
-                    Log.w(TAG, "GPU initialization failed (${gpuError.message}), falling back to CPU backend...", gpuError)
-                }
-            }
-
-            // CPU initialization (default or fallback)
-            if (loadedEngine == null) {
-                try {
-                    val cpuConfig = EngineConfig(
-                        modelPath = modelPath,
-                        backend = Backend.CPU(),
-                        cacheDir = context.cacheDir.path
-                    )
-                    loadedEngine = Engine(cpuConfig).also { it.initialize() }
-                    backendUsed = "CPU"
-                    Log.d(TAG, "LiteRT-LM initialized successfully on CPU")
-                } catch (cpuError: Throwable) {
-                    Log.e(TAG, "CPU initialization also failed", cpuError)
-                    return@withLock Result.failure(cpuError)
-                }
-            }
-
             try {
-                val newConversation = loadedEngine.createConversation(
+                // Try GPU first only if requested & safe for this device architecture
+                if (!forceCpu && isGpuSafe()) {
+                    try {
+                        Log.d(TAG, "Attempting to initialize LiteRT-LM engine with GPU backend...")
+                        val gpuConfig = EngineConfig(
+                            modelPath = modelPath,
+                            backend = Backend.GPU(),
+                            cacheDir = context.cacheDir.path
+                        )
+                        var tempGpuEngine: Engine? = null
+                        loadedEngine = withTimeoutOrNull(15_000L) {
+                            val e = Engine(gpuConfig)
+                            tempGpuEngine = e
+                            e.initialize()
+                            e
+                        }
+                        if (loadedEngine != null) {
+                            backendUsed = "GPU"
+                            Log.d(TAG, "LiteRT-LM initialized successfully on GPU")
+                        } else {
+                            Log.w(TAG, "GPU initialization timed out after 15s. Closing temp engine & falling back to CPU...")
+                            try { tempGpuEngine?.close() } catch (_: Throwable) {}
+                        }
+                    } catch (gpuError: Throwable) {
+                        Log.w(TAG, "GPU initialization failed (${gpuError.message}), falling back to CPU backend...", gpuError)
+                    }
+                }
+
+                // CPU initialization (default or fallback)
+                if (loadedEngine == null) {
+                    try {
+                        Log.d(TAG, "Attempting to initialize LiteRT-LM engine with CPU backend...")
+                        val cpuConfig = EngineConfig(
+                            modelPath = modelPath,
+                            backend = Backend.CPU(),
+                            cacheDir = context.cacheDir.path
+                        )
+                        var tempCpuEngine: Engine? = null
+                        loadedEngine = withTimeoutOrNull(30_000L) {
+                            val e = Engine(cpuConfig)
+                            tempCpuEngine = e
+                            e.initialize()
+                            e
+                        }
+                        if (loadedEngine != null) {
+                            backendUsed = "CPU"
+                            Log.d(TAG, "LiteRT-LM initialized successfully on CPU")
+                        } else {
+                            try { tempCpuEngine?.close() } catch (_: Throwable) {}
+                            val timeoutMsg = "Engine initialization timed out (took over 30 seconds)."
+                            Log.e(TAG, timeoutMsg)
+                            return@withLock Result.failure(IllegalStateException(timeoutMsg))
+                        }
+                    } catch (cpuError: Throwable) {
+                        Log.e(TAG, "CPU initialization also failed", cpuError)
+                        return@withLock Result.failure(cpuError)
+                    }
+                }
+
+                val currentEngine = loadedEngine
+
+                val newConversation = currentEngine.createConversation(
                     ConversationConfig(
                         systemInstruction = Contents.of(
                             "You are NewsAIBuddy, a helpful and knowledgeable on-device AI assistant for news, headlines, and general queries."
                         )
                     )
                 )
-                engine = loadedEngine
+
+                engine = currentEngine
                 conversation = newConversation
                 loadedModelPath = modelPath
                 activeBackend = backendUsed
+                loadedEngine = null // cleared so finally block won't close it
+
                 Result.success(backendUsed)
-            } catch (convError: Throwable) {
-                Log.e(TAG, "Failed to create conversation", convError)
-                try { loadedEngine.close() } catch (_: Throwable) {}
-                Result.failure(convError)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to initialize model at $modelPath", t)
+                try { loadedEngine?.close() } catch (_: Throwable) {}
+                Result.failure(t)
+            } finally {
+                // Cleanup any dangling engine reference if initialization was cancelled or failed
+                try { loadedEngine?.close() } catch (_: Throwable) {}
             }
         }
     }
@@ -155,7 +203,7 @@ class LiteRtLmService @Inject constructor(
      * All calls run on the dedicated single-thread dispatcher as required by LiteRT-LM.
      */
     fun sendMessageStream(text: String): Flow<String> = channelFlow {
-        withContext(dispatcher) {
+        withContext(getDispatcher()) {
             val conv = conversation ?: throw IllegalStateException("Model is not initialized.")
             if (isBusy) {
                 throw IllegalStateException("Model is already busy generating.")
@@ -175,13 +223,46 @@ class LiteRtLmService @Inject constructor(
         }
     }
 
+    /**
+     * Resets the active conversation context in the LiteRT-LM engine.
+     * Useful when starting a new chat or switching between history threads.
+     */
+    suspend fun resetConversation(): Boolean = withContext(getDispatcher()) {
+        mutex.withLock {
+            val eng = engine ?: return@withContext false
+            try {
+                if (isBusy) {
+                    try { conversation?.cancelProcess() } catch (_: Throwable) {}
+                    isBusy = false
+                }
+                try { conversation?.close() } catch (_: Throwable) {}
+                conversation = eng.createConversation(
+                    ConversationConfig(
+                        systemInstruction = Contents.of(
+                            "You are NewsAIBuddy, a helpful and knowledgeable on-device AI assistant for news, headlines, and general queries."
+                        )
+                    )
+                )
+                Log.d(TAG, "Conversation context reset successfully.")
+                true
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to reset conversation context", e)
+                false
+            }
+        }
+    }
+
     private suspend fun releaseInternal() {
-        while (isBusy) {
+        var attempts = 0
+        while (isBusy && attempts < 20) { // max wait 1 second
             try {
                 conversation?.cancelProcess()
             } catch (_: Throwable) {}
             delay(50)
+            attempts++
         }
+        isBusy = false
+
         try {
             conversation?.close()
         } catch (_: Throwable) {}
@@ -194,10 +275,9 @@ class LiteRtLmService @Inject constructor(
 
         loadedModelPath = null
         activeBackend = null
-        isBusy = false
     }
 
-    suspend fun release() = withContext(dispatcher) {
+    suspend fun release() = withContext(getDispatcher()) {
         mutex.withLock {
             releaseInternal()
         }
@@ -208,7 +288,9 @@ class LiteRtLmService @Inject constructor(
             mutex.withLock {
                 releaseInternal()
             }
-            executor.shutdown()
+            synchronized(this@LiteRtLmService) {
+                executor.shutdown()
+            }
         }.invokeOnCompletion {
             scope.cancel()
         }
@@ -218,3 +300,4 @@ class LiteRtLmService @Inject constructor(
         private const val TAG = "LiteRtLmService"
     }
 }
+

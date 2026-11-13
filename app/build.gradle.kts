@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp.dev)
     alias(libs.plugins.hilt.android)
@@ -12,7 +11,7 @@ plugins {
 
 android {
     namespace = "com.support.tech.newsaibuddy"
-    compileSdk = 36
+    compileSdk = 37
 
     val file = rootProject.file("local.properties")
     val properties = Properties()
@@ -27,12 +26,20 @@ android {
     val botKey = formatKey(properties.getProperty("botKey"))
     val newsKey = formatKey(properties.getProperty("newsKey"))
 
+    val envVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
+        ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
+        ?: 7
+
+    val envVersionName = System.getenv("VERSION_NAME")
+        ?: project.findProperty("versionName")?.toString()
+        ?: "1.0.3"
+
     defaultConfig {
         applicationId = "com.support.tech.newsaibuddy"
         minSdk = 24
-        targetSdk = 36
-        versionCode = 7
-        versionName = "1.0.3"
+        targetSdk = 37
+        versionCode = envVersionCode
+        versionName = envVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -48,7 +55,17 @@ android {
 
     signingConfigs {
         create("release") {
-            if (keystorePropertiesFile.exists()) {
+            val envStoreFile = System.getenv("KEYSTORE_FILE")
+            val envStorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val envKeyAlias = System.getenv("KEY_ALIAS")
+            val envKeyPassword = System.getenv("KEY_PASSWORD")
+
+            if (!envStoreFile.isNullOrBlank() && !envStorePassword.isNullOrBlank()) {
+                storeFile = file(envStoreFile)
+                storePassword = envStorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
+            } else if (keystorePropertiesFile.exists()) {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
                 val storeFilePath = keystoreProperties["storeFile"] as String
@@ -68,7 +85,7 @@ android {
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
             ndk {
                 debugSymbolLevel = "FULL"
@@ -79,13 +96,16 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-        freeCompilerArgs = listOf("-Xskip-metadata-version-check")
-    }
+
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
@@ -101,16 +121,16 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
-    ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.21")
+    ksp(libs.metadata.jvm)
     implementation(libs.androidx.hilt.navigation.compose)
 
     implementation(libs.litertlm.android)

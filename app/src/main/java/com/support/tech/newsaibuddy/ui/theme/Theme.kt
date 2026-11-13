@@ -2,35 +2,43 @@ package com.support.tech.newsaibuddy.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 // Define the dark color scheme for the application.
 private val DarkColorScheme = darkColorScheme(
     primary = RustPrimary,
     secondary = RustAccent,
-    background = Color(0xFF121212),
-    surface = Color(0xFF1E1E1E),
+    background = Color(0xFF121214),
+    surface = Color(0xFF1E1E22),
+    surfaceVariant = Color(0xFF2E1A0F),
     onPrimary = Color.White,
-    onBackground = Color(0xFFE5E7EB),
-    onSurface = Color(0xFFE5E7EB)
+    onBackground = Color(0xFFF9FAFB),
+    onSurface = Color(0xFFF9FAFB),
+    onSurfaceVariant = Color(0xFF9CA3AF),
+    outline = Color(0xFF6B7280),
+    outlineVariant = Color(0xFF2E2E34)
 )
 
 // Define the light color scheme for the application.
 private val LightColorScheme = lightColorScheme(
     primary = RustPrimary,
     secondary = RustAccent,
-    background = ScreenBackground,
-    surface = CardBackground,
+    background = Color(0xFFFAF9F6),
+    surface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFFFFF3E0),
     onPrimary = Color.White,
-    onBackground = TextPrimary,
-    onSurface = TextPrimary
+    onBackground = Color(0xFF111827),
+    onSurface = Color(0xFF111827),
+    onSurfaceVariant = Color(0xFF6B7280),
+    outline = Color(0xFF9CA3AF),
+    outlineVariant = Color(0xFFE5E7EB)
 )
 
 // Composable function to apply the NewsAIBuddy theme.
@@ -40,20 +48,16 @@ fun NewsAIBuddyTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // Determine the color scheme to use based on the system settings and app preferences.
+    // Determine the color scheme to use based on settings and preferences.
     val colorScheme = when {
-        // If dynamic color is enabled and the Android version is 12 or higher, use dynamic colors.
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            // Use dynamic dark or light color scheme based on the system's dark theme setting.
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        // If dynamic color is not available or disabled, use the predefined dark color scheme if dark theme is enabled.
         darkTheme -> DarkColorScheme
-        // Otherwise, use the predefined light color scheme.
         else -> LightColorScheme
     }
-    // Apply the MaterialTheme with the selected color scheme and typography.
+
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,

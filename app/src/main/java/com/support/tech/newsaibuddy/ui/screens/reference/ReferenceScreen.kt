@@ -90,18 +90,17 @@ fun ReferenceScreen(navController: NavController, urlToLoad: String) {
                     ) {
                         // Rounded back button consistent with ChatBot & News designs
                         Surface(
+                            onClick = {
+                                if (webView?.canGoBack() == true) {
+                                    webView?.goBack()
+                                } else {
+                                    navController.popBackStack()
+                                }
+                            },
                             shape = RoundedCornerShape(12.dp),
                             color = CardBackground,
                             border = BorderStroke(1.dp, CardBorder),
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable {
-                                    if (webView?.canGoBack() == true) {
-                                        webView?.goBack()
-                                    } else {
-                                        navController.popBackStack()
-                                    }
-                                }
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(

@@ -20,29 +20,52 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -62,6 +86,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -70,6 +95,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
+import com.support.tech.newsaibuddy.data.local.ChatConversation
 import com.support.tech.newsaibuddy.data.litertlm.DownloadState
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
 import com.support.tech.newsaibuddy.ui.theme.BotAvatarBg
@@ -85,13 +111,19 @@ import com.support.tech.newsaibuddy.ui.theme.UserBubbleBackground
 import com.support.tech.newsaibuddy.ui.theme.UserBubbleBorder
 import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ChatBotViewModel
 import com.support.tech.newsaibuddy.ui.viewmodel.chatbot.ModelStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * ChatBot Screen powered by Google LiteRT-LM (On-Device LLM):
- * - Top header with rounded back button, title, on-device status badge & bot avatar
+ * - Top header with back button, history drawer toggle, "+ New Chat" button & model picker selector
+ * - Offline local conversation history with drawer sheet & auto-saving capability
+ * - Sticky Top Download Progress Banner when downloading in background
+ * - Model Selection Modal BottomSheet allowing users to change or download models anytime
  * - "NEW CONVERSATION" divider
- * - On-Device model management card when model setup or download is required
- * - Distinct styled chat bubbles for User (warm cream) and Bot (white + avatar icon) with streaming support
+ * - On-Device model management card when setup or download is required
+ * - Distinct styled chat bubbles for User and Bot with streaming support
  * - "A PLACE TO START" prompt suggestion cards
  * - Rounded input bar with rust upward-arrow send button & on-device AI status
  */
@@ -117,7 +149,13 @@ fun ChatBotScreen(
         topBar = {
             ChatBotTopBar(
                 modelStatus = chatUiState.modelStatus,
-                onBackClick = { navController.popBackStack() }
+                activeModel = chatUiState.activeModel,
+                downloadState = chatUiState.downloadState,
+                conversationCount = chatUiState.conversations.size,
+                onBackClick = { navController.popBackStack() },
+                onOpenModelSelector = { chatViewModel.toggleModelSelector(true) },
+                onOpenHistory = { chatViewModel.toggleHistorySheet(true) },
+                onNewChat = { chatViewModel.startNewConversation() }
             )
         },
         bottomBar = {
@@ -135,8 +173,19 @@ fun ChatBotScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Sticky Download Progress Banner at top of screen
+            if (chatUiState.downloadState is DownloadState.Downloading) {
+                TopDownloadProgressBanner(
+                    downloadState = chatUiState.downloadState as DownloadState.Downloading,
+                    onCancel = { chatViewModel.cancelDownload() }
+                )
+            }
+
             // "NEW CONVERSATION" Divider
-            NewConversationDivider()
+            NewConversationDivider(
+                title = chatUiState.currentConversationTitle,
+                onNewChatClick = { chatViewModel.startNewConversation() }
+            )
 
             // Chat messages list
             LazyColumn(
@@ -147,17 +196,28 @@ fun ChatBotScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // If model needs setup or downloading, show the on-device model card first
+                // If model needs setup or downloading, or has error, show the on-device model card first
                 if (chatUiState.modelStatus !is ModelStatus.Ready) {
                     item {
                         OnDeviceModelCard(
                             modelStatus = chatUiState.modelStatus,
                             downloadState = chatUiState.downloadState,
-                            onDownloadModel = { model ->
-                                chatViewModel.startDownload(model)
+                            downloadedModelIds = chatUiState.downloadedModelIds,
+                            activeModel = chatUiState.activeModel,
+                            onSelectModel = { model ->
+                                chatViewModel.selectModel(model)
+                            },
+                            onLoadWithCpu = { model ->
+                                chatViewModel.loadModel(model, forceCpu = true)
+                            },
+                            onCancelDownload = {
+                                chatViewModel.cancelDownload()
                             },
                             onRefresh = {
                                 chatViewModel.checkAndInitLocalModel()
+                            },
+                            onOpenModelSelector = {
+                                chatViewModel.toggleModelSelector(true)
                             }
                         )
                     }
@@ -171,6 +231,7 @@ fun ChatBotScreen(
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     PlaceToStartSection(
+                        prompts = chatUiState.starterPrompts,
                         enabled = isModelReady && !chatUiState.isGenerating,
                         onPromptClick = { prompt ->
                             chatViewModel.sendMessage(prompt)
@@ -180,15 +241,141 @@ fun ChatBotScreen(
             }
         }
     }
+
+    // Model Selector Bottom Sheet
+    if (chatUiState.showModelSelectorSheet) {
+        ModelSelectionBottomSheet(
+            availableModels = chatUiState.availableModels,
+            downloadedModelIds = chatUiState.downloadedModelIds,
+            activeModel = chatUiState.activeModel,
+            modelStatus = chatUiState.modelStatus,
+            downloadState = chatUiState.downloadState,
+            onSelectModel = { model ->
+                chatViewModel.selectModel(model)
+            },
+            onForceCpuModel = { model ->
+                chatViewModel.loadModel(model, forceCpu = true)
+            },
+            onCancelDownload = {
+                chatViewModel.cancelDownload()
+            },
+            onDismiss = {
+                chatViewModel.toggleModelSelector(false)
+            }
+        )
+    }
+
+    // Offline History Modal Bottom Sheet
+    if (chatUiState.showHistorySheet) {
+        HistoryBottomSheet(
+            conversations = chatUiState.conversations,
+            currentConversationId = chatUiState.currentConversationId,
+            searchQuery = chatUiState.historySearchQuery,
+            onSearchQueryChange = { chatViewModel.updateHistorySearchQuery(it) },
+            onSelectConversation = { conv ->
+                chatViewModel.loadConversation(conv)
+            },
+            onStartNewChat = {
+                chatViewModel.startNewConversation()
+            },
+            onDeleteConversation = { conv ->
+                chatViewModel.setConversationToDelete(conv)
+            },
+            onClearAllClick = {
+                chatViewModel.setShowClearAllDialog(true)
+            },
+            onDismiss = {
+                chatViewModel.toggleHistorySheet(false)
+            }
+        )
+    }
+
+    // Single Conversation Delete Confirmation Dialog
+    chatUiState.conversationToDelete?.let { convToDelete ->
+        AlertDialog(
+            onDismissRequest = { chatViewModel.setConversationToDelete(null) },
+            title = {
+                Text(
+                    text = "Delete Conversation?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete \"${convToDelete.title}\"? This conversation will be permanently removed from offline history.",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { chatViewModel.deleteConversation(convToDelete.id) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chatViewModel.setConversationToDelete(null) }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Clear All History Confirmation Dialog
+    if (chatUiState.showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { chatViewModel.setShowClearAllDialog(false) },
+            title = {
+                Text(
+                    text = "Clear All History?",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "This will delete all ${chatUiState.conversations.size} saved conversations from local device storage.",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { chatViewModel.clearAllHistory() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Clear All", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chatViewModel.setShowClearAllDialog(false) }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardBackground,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
 }
 
 /**
- * Top App Bar with title, subtitle, on-device status badge & robot icon.
+ * Top App Bar with title, history icon, new chat button & active model selector chip.
  */
 @Composable
 private fun ChatBotTopBar(
     modelStatus: ModelStatus,
-    onBackClick: () -> Unit
+    activeModel: LiteRtModel?,
+    downloadState: DownloadState,
+    conversationCount: Int,
+    onBackClick: () -> Unit,
+    onOpenModelSelector: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onNewChat: () -> Unit
 ) {
     Surface(
         color = ScreenBackground,
@@ -199,18 +386,17 @@ private fun ChatBotTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Rounded Back Button
             Surface(
+                onClick = onBackClick,
                 shape = RoundedCornerShape(12.dp),
                 color = CardBackground,
                 border = BorderStroke(1.dp, CardBorder),
-                modifier = Modifier
-                    .size(42.dp)
-                    .clickable(onClick = onBackClick)
+                modifier = Modifier.size(42.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -222,44 +408,184 @@ private fun ChatBotTopBar(
                 }
             }
 
-            // Title & Subtitle Column
+            // Title & Active Model Selector Column
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Chat Bot",
-                        fontSize = 22.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ModelStatusBadge(modelStatus = modelStatus)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    ModelStatusBadge(modelStatus = modelStatus, downloadState = downloadState)
                 }
-                Text(
-                    text = "On-Device AI • Google LiteRT-LM",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
 
-            // Robot badge icon
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = BotBadgeBackground,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+                // Clickable Model Selector Chip
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clickable { onOpenModelSelector() }
+                ) {
                     Icon(
-                        imageVector = Icons.Filled.SmartToy,
-                        contentDescription = "AI Companion",
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
                         tint = RustPrimary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = when (downloadState) {
+                            is DownloadState.Downloading -> "Downloading (${downloadState.progressPercent}%)..."
+                            else -> activeModel?.displayName ?: "Choose Model"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = RustPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select Model",
+                        tint = RustPrimary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
+
+            // Action Buttons Row: History Drawer & "+ New" Chat
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // History Drawer Button with counter badge
+                Surface(
+                    onClick = onOpenHistory,
+                    shape = RoundedCornerShape(12.dp),
+                    color = CardBackground,
+                    border = BorderStroke(1.dp, CardBorder),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = "History",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (conversationCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(8.dp)
+                                    .background(RustPrimary, CircleShape)
+                            )
+                        }
+                    }
+                }
+
+                // "+ New Chat" Button
+                Surface(
+                    onClick = onNewChat,
+                    shape = RoundedCornerShape(12.dp),
+                    color = BotBadgeBackground,
+                    border = BorderStroke(1.dp, UserBubbleBorder),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Chat",
+                            tint = RustPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Sticky Download Progress Banner at top of screen during background model downloading.
+ */
+@Composable
+private fun TopDownloadProgressBanner(
+    downloadState: DownloadState.Downloading,
+    onCancel: () -> Unit
+) {
+    Surface(
+        color = Color(0xFFFFF7ED),
+        border = BorderStroke(1.dp, Color(0xFFFFEDD5)),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDownload,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Downloading ${downloadState.model.displayName}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${downloadState.bytesDownloaded / 1_000_000} MB / ${downloadState.totalBytes / 1_000_000} MB (${downloadState.progressPercent}%)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = RustPrimary
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel Download",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LinearProgressIndicator(
+                progress = { downloadState.progressPercent / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = RustPrimary,
+                trackColor = Color(0xFFFED7AA)
+            )
         }
     }
 }
@@ -268,13 +594,18 @@ private fun ChatBotTopBar(
  * Compact pill badge indicating the on-device model status.
  */
 @Composable
-private fun ModelStatusBadge(modelStatus: ModelStatus) {
-    val (text, bgColor, textColor) = when (modelStatus) {
-        is ModelStatus.Ready -> Triple("Offline (${modelStatus.backend})", Color(0xFFE8F5E9), Color(0xFF2E7D32))
-        is ModelStatus.Initializing -> Triple("Loading...", Color(0xFFFFF3E0), Color(0xFFE65100))
-        is ModelStatus.NotDownloaded -> Triple("Model Required", Color(0xFFF3F4F6), Color(0xFF4B5563))
-        is ModelStatus.Checking -> Triple("Checking...", Color(0xFFF3F4F6), Color(0xFF4B5563))
-        is ModelStatus.Error -> Triple("Setup Issue", Color(0xFFFFEBEE), Color(0xFFC62828))
+private fun ModelStatusBadge(
+    modelStatus: ModelStatus,
+    downloadState: DownloadState
+) {
+    val (text, bgColor, textColor) = when {
+        downloadState is DownloadState.Downloading -> Triple("Downloading ${downloadState.progressPercent}%", Color(0xFFFFF3E0), Color(0xFFE65100))
+        modelStatus is ModelStatus.Ready -> Triple("Offline (${modelStatus.backend})", Color(0xFFE8F5E9), Color(0xFF2E7D32))
+        modelStatus is ModelStatus.Initializing -> Triple("Loading...", Color(0xFFFFF3E0), Color(0xFFE65100))
+        modelStatus is ModelStatus.NotDownloaded -> Triple("Model Required", Color(0xFFF3F4F6), Color(0xFF4B5563))
+        modelStatus is ModelStatus.Checking -> Triple("Checking...", Color(0xFFF3F4F6), Color(0xFF4B5563))
+        modelStatus is ModelStatus.Error -> Triple("Setup Issue", Color(0xFFFFEBEE), Color(0xFFC62828))
+        else -> Triple("Offline", Color(0xFFF3F4F6), Color(0xFF4B5563))
     }
 
     Surface(
@@ -292,14 +623,687 @@ private fun ModelStatusBadge(modelStatus: ModelStatus) {
 }
 
 /**
- * Setup and download card for On-Device LiteRT-LM models.
+ * Offline Conversation History Bottom Sheet displaying saved chats with search & delete actions.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistoryBottomSheet(
+    conversations: List<ChatConversation>,
+    currentConversationId: String?,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSelectConversation: (ChatConversation) -> Unit,
+    onStartNewChat: () -> Unit,
+    onDeleteConversation: (ChatConversation) -> Unit,
+    onClearAllClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val filteredConversations = if (searchQuery.isBlank()) {
+        conversations
+    } else {
+        conversations.filter { conv ->
+            conv.title.contains(searchQuery, ignoreCase = true) ||
+            conv.messages.any { msg -> msg.text.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = CardBackground,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .navigationBarsPadding()
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Conversation History",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${conversations.size} offline chats saved",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (conversations.isNotEmpty()) {
+                        IconButton(onClick = onClearAllClick) {
+                            Icon(
+                                imageVector = Icons.Default.CleaningServices,
+                                contentDescription = "Clear All History",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Row: "+ Start New Conversation" Button
+            Button(
+                onClick = {
+                    onStartNewChat()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Start New Conversation",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Search Bar
+            if (conversations.isNotEmpty()) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text("Search chat history...", fontSize = 13.sp, color = TextMuted) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear Search",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = ScreenBackground,
+                        unfocusedContainerColor = ScreenBackground,
+                        focusedBorderColor = RustPrimary,
+                        unfocusedBorderColor = CardBorder
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // Notice Banner about offline storage
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFFFFBEB),
+                border = BorderStroke(1.dp, UserBubbleBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "History is stored 100% locally on device. Clearing app cache or uninstalling will remove history.",
+                        fontSize = 11.sp,
+                        color = TextPrimary,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Conversations List or Empty State
+            if (filteredConversations.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Forum,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No matching conversations found" else "No conversation history yet",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "Each chat is automatically saved locally.",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp)
+                ) {
+                    items(filteredConversations, key = { it.id }) { conversation ->
+                        val isSelected = conversation.id == currentConversationId
+                        HistoryConversationItem(
+                            conversation = conversation,
+                            isSelected = isSelected,
+                            onSelect = { onSelectConversation(conversation) },
+                            onDelete = { onDeleteConversation(conversation) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * Individual Conversation Item card inside the History sheet.
+ */
+@Composable
+private fun HistoryConversationItem(
+    conversation: ChatConversation,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val borderColor = if (isSelected) RustPrimary else CardBorder
+    val containerColor = if (isSelected) Color(0xFFFFFBF5) else ScreenBackground
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon Badge
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        color = if (isSelected) RustPrimary else Color(0xFFF3F4F6),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = null,
+                    tint = if (isSelected) Color.White else TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Main Details
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = conversation.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formatRelativeTime(conversation.updatedAt),
+                        fontSize = 11.sp,
+                        color = TextMuted
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                val lastMessage = conversation.messages.lastOrNull()?.text ?: ""
+                Text(
+                    text = if (lastMessage.isNotBlank()) lastMessage else "${conversation.messages.size} messages",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Trash / Delete Icon Button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete Conversation",
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val seconds = diff / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    val days = hours / 24
+
+    return when {
+        diff < 0 || seconds < 60 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days == 1L -> "Yesterday"
+        days < 7 -> "${days}d ago"
+        else -> {
+            val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+            sdf.format(Date(timestamp))
+        }
+    }
+}
+
+/**
+ * Modal Bottom Sheet allowing user to choose, switch, or download on-device LLM models anytime.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSelectionBottomSheet(
+    availableModels: List<LiteRtModel>,
+    downloadedModelIds: Set<String>,
+    activeModel: LiteRtModel?,
+    modelStatus: ModelStatus,
+    downloadState: DownloadState,
+    onSelectModel: (LiteRtModel) -> Unit,
+    onForceCpuModel: (LiteRtModel) -> Unit,
+    onCancelDownload: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = CardBackground,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .navigationBarsPadding()
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = null,
+                        tint = RustPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Select On-Device AI Model",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Runs 100% locally on your phone",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // List of Models
+            availableModels.forEach { model ->
+                val isDownloaded = downloadedModelIds.contains(model.id)
+                val isActive = activeModel?.id == model.id && modelStatus is ModelStatus.Ready
+                val isInitializing = modelStatus is ModelStatus.Initializing && modelStatus.model?.id == model.id
+                val activeDownloadingState = downloadState as? DownloadState.Downloading
+                val isThisDownloading = activeDownloadingState?.model?.id == model.id
+
+                ModelSelectionCardItem(
+                    model = model,
+                    isDownloaded = isDownloaded,
+                    isActive = isActive,
+                    isInitializing = isInitializing,
+                    downloadState = if (isThisDownloading) activeDownloadingState else null,
+                    onSelect = { onSelectModel(model) },
+                    onForceCpu = { onForceCpuModel(model) },
+                    onCancelDownload = onCancelDownload
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * Individual model item inside the Model Selection sheet.
+ */
+@Composable
+private fun ModelSelectionCardItem(
+    model: LiteRtModel,
+    isDownloaded: Boolean,
+    isActive: Boolean,
+    isInitializing: Boolean,
+    downloadState: DownloadState.Downloading?,
+    onSelect: () -> Unit,
+    onForceCpu: () -> Unit,
+    onCancelDownload: () -> Unit
+) {
+    val borderColor = if (isActive) RustPrimary else CardBorder
+    val containerColor = if (isActive) Color(0xFFFFFBF5) else ScreenBackground
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = containerColor,
+        border = BorderStroke(if (isActive) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = model.displayName,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "(${model.formattedSize})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = model.description,
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Action Button / Status Badge
+                when {
+                    downloadState != null -> {
+                        // Currently Downloading this model
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${downloadState.progressPercent}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = RustPrimary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel",
+                                    tint = TextMuted,
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable { onCancelDownload() }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { downloadState.progressPercent / 100f },
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = RustPrimary,
+                                trackColor = Color(0xFFFED7AA)
+                            )
+                        }
+                    }
+
+                    isActive -> {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Active",
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "ACTIVE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    }
+
+                    isInitializing -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                color = RustPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Loading...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = RustPrimary
+                            )
+                        }
+                    }
+
+                    isDownloaded -> {
+                        // Model downloaded: Show "Select" / "Switch" button
+                        Button(
+                            onClick = onSelect,
+                            colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Select",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Select",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    else -> {
+                        // Model not downloaded: Show "Get Download" button
+                        Button(
+                            onClick = onSelect,
+                            colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = "Get Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Get Download",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            // CPU Fallback option if user wants forced CPU mode for stability
+            if (isDownloaded && !isActive && !isInitializing && downloadState == null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = "Load with CPU (Safe Mode)",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable { onForceCpu() }
+                            .padding(2.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Setup and download card for On-Device LiteRT-LM models shown in main screen body.
  */
 @Composable
 private fun OnDeviceModelCard(
     modelStatus: ModelStatus,
     downloadState: DownloadState,
-    onDownloadModel: (LiteRtModel) -> Unit,
-    onRefresh: () -> Unit
+    downloadedModelIds: Set<String>,
+    activeModel: LiteRtModel?,
+    onSelectModel: (LiteRtModel) -> Unit,
+    onLoadWithCpu: (LiteRtModel) -> Unit,
+    onCancelDownload: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpenModelSelector: () -> Unit
 ) {
     var showAdbHint by rememberSaveable { mutableStateOf(false) }
 
@@ -333,9 +1337,9 @@ private fun OnDeviceModelCard(
                 }
 
                 Surface(
+                    onClick = onRefresh,
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFF3F4F6),
-                    modifier = Modifier.clickable(onClick = onRefresh)
+                    color = Color(0xFFF3F4F6)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -368,71 +1372,70 @@ private fun OnDeviceModelCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Download State Progress
-            if (downloadState is DownloadState.Downloading) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Downloading model weights...",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = RustPrimary
-                        )
-                        Text(
-                            text = "${downloadState.progressPercent}%",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = RustPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { downloadState.progressPercent / 100f },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp),
-                        color = RustPrimary,
-                        trackColor = Color(0xFFE5E7EB)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${downloadState.bytesDownloaded / 1_000_000} MB / ${downloadState.totalBytes / 1_000_000} MB",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                }
-            } else if (modelStatus is ModelStatus.Initializing) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            if (modelStatus is ModelStatus.Initializing) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
                     CircularProgressIndicator(
                         color = RustPrimary,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = modelStatus.info,
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = modelStatus.info,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Please wait a few seconds...",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
                 }
             } else {
-                // Model Download Options
-                Text(
-                    text = "AVAILABLE MODELS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp,
-                    color = TextSecondary
-                )
+                // Model Options Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "AVAILABLE MODELS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp,
+                        color = TextSecondary
+                    )
+
+                    Text(
+                        text = "View All →",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = RustPrimary,
+                        modifier = Modifier.clickable { onOpenModelSelector() }
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LiteRtModel.ALL_MODELS.forEach { model ->
+                    val isDownloaded = downloadedModelIds.contains(model.id)
+                    val isActive = activeModel?.id == model.id && modelStatus is ModelStatus.Ready
+                    val currentDownloadingState = downloadState as? DownloadState.Downloading
+                    val isThisDownloading = currentDownloadingState?.model?.id == model.id
+
                     ModelOptionRow(
                         model = model,
-                        onDownload = { onDownloadModel(model) }
+                        isDownloaded = isDownloaded,
+                        isActive = isActive,
+                        downloadState = if (isThisDownloading) currentDownloadingState else null,
+                        onSelect = { onSelectModel(model) },
+                        onCancelDownload = onCancelDownload
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -470,11 +1473,50 @@ private fun OnDeviceModelCard(
 
             if (modelStatus is ModelStatus.Error) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Error: ${modelStatus.error}",
-                    fontSize = 12.sp,
-                    color = Color(0xFFDC2626)
-                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Initialization Error: ${modelStatus.error}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFDC2626)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (modelStatus.failedModel != null) {
+                                OutlinedButton(
+                                    onClick = { onLoadWithCpu(modelStatus.failedModel) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Memory,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Retry (CPU Mode)", fontSize = 11.sp)
+                                }
+                            }
+
+                            Button(
+                                onClick = onOpenModelSelector,
+                                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Select Other Model", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -483,12 +1525,16 @@ private fun OnDeviceModelCard(
 @Composable
 private fun ModelOptionRow(
     model: LiteRtModel,
-    onDownload: () -> Unit
+    isDownloaded: Boolean,
+    isActive: Boolean,
+    downloadState: DownloadState.Downloading?,
+    onSelect: () -> Unit,
+    onCancelDownload: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = ScreenBackground,
-        border = BorderStroke(1.dp, CardBorder),
+        border = BorderStroke(if (isActive) 1.5.dp else 1.dp, if (isActive) RustPrimary else CardBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -499,50 +1545,125 @@ private fun ModelOptionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${model.displayName} (${model.formattedSize})",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = model.displayName,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "(${model.formattedSize})",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
                 Text(
                     text = model.description,
                     fontSize = 11.sp,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Button(
-                onClick = onDownload,
-                colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
-                    contentDescription = "Download",
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Get",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+            when {
+                downloadState != null -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${downloadState.progressPercent}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = RustPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = TextMuted,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onCancelDownload() }
+                        )
+                    }
+                }
+
+                isActive -> {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFE8F5E9)
+                    ) {
+                        Text(
+                            text = "ACTIVE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                isDownloaded -> {
+                    Button(
+                        onClick = onSelect,
+                        colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Select",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Select",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                else -> {
+                    Button(
+                        onClick = onSelect,
+                        colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Get Download",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Get Download",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 /**
- * Centered "NEW CONVERSATION" divider line.
+ * Centered "NEW CONVERSATION" divider line with current title & quick start chip.
  */
 @Composable
-private fun NewConversationDivider() {
+private fun NewConversationDivider(
+    title: String,
+    onNewChatClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -554,14 +1675,36 @@ private fun NewConversationDivider() {
             color = CardBorder,
             thickness = 1.dp
         )
-        Text(
-            text = "NEW CONVERSATION",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
-            color = TextSecondary,
-            modifier = Modifier.padding(horizontal = 14.dp)
-        )
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = ScreenBackground,
+            border = BorderStroke(1.dp, CardBorder),
+            modifier = Modifier
+                .padding(horizontal = 10.dp)
+                .clickable { onNewChatClick() }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = title.uppercase(Locale.getDefault()),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                    color = RustPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "New Chat",
+                    tint = RustPrimary,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
         HorizontalDivider(
             modifier = Modifier.weight(1f),
             color = CardBorder,
@@ -723,14 +1866,6 @@ fun ChatBubbleItem(message: ChatBotMessage) {
 
 /**
  * Custom Markdown Formatted Text Renderer for Chat Bot messages.
- * Formats:
- * - **bold text** -> Bold
- * - *italic text* -> Italic
- * - `code` -> Monospace tag
- * - #, ##, ### -> Headings
- * - 1. , 2. -> Numbered list
- * - - , * -> Bullet point list
- * - --- -> Horizontal rule
  */
 @Composable
 fun FormattedMarkdownText(
@@ -946,10 +2081,11 @@ fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
 }
 
 /**
- * "A PLACE TO START" prompt suggestions matching Figma design.
+ * "A PLACE TO START" prompt suggestions displaying 3 dynamic or curated prompts.
  */
 @Composable
 private fun PlaceToStartSection(
+    prompts: List<String>,
     enabled: Boolean,
     onPromptClick: (String) -> Unit
 ) {
@@ -958,28 +2094,36 @@ private fun PlaceToStartSection(
             .fillMaxWidth()
             .padding(top = 16.dp)
     ) {
-        Text(
-            text = "A PLACE TO START",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
-            color = TextSecondary,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 12.dp)
-        )
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = "Suggestions",
+                tint = RustPrimary,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "A PLACE TO START",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.4.sp,
+                color = TextSecondary
+            )
+        }
 
-        PromptCard(
-            text = "Help me understand a headline",
-            enabled = enabled,
-            onClick = { onPromptClick("Help me understand a headline") }
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        PromptCard(
-            text = "Explain a business term",
-            enabled = enabled,
-            onClick = { onPromptClick("Explain a business term") }
-        )
+        prompts.take(3).forEachIndexed { index, promptText ->
+            if (index > 0) {
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+            PromptCard(
+                text = promptText,
+                enabled = enabled,
+                onClick = { onPromptClick(promptText) }
+            )
+        }
     }
 }
 
@@ -990,13 +2134,13 @@ private fun PromptCard(
     onClick: () -> Unit
 ) {
     Card(
+        onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         border = BorderStroke(1.dp, CardBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -1009,12 +2153,13 @@ private fun PromptCard(
                 text = text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (enabled) TextPrimary else TextMuted
+                color = if (enabled) TextPrimary else TextMuted,
+                modifier = Modifier.weight(1f)
             )
 
             Icon(
                 imageVector = Icons.Default.ArrowOutward,
-                contentDescription = null,
+                contentDescription = "Send Prompt",
                 tint = if (enabled) RustPrimary else TextMuted,
                 modifier = Modifier.size(18.dp)
             )
@@ -1023,7 +2168,7 @@ private fun PromptCard(
 }
 
 /**
- * Bottom Input Bar with Upward Arrow Send Button & Disclaimer.
+ * Bottom Input Bar with rust circle send button and on-device privacy badge.
  */
 @Composable
 private fun ChatBotInputSection(
@@ -1031,73 +2176,75 @@ private fun ChatBotInputSection(
     isGenerating: Boolean,
     onSendMessage: (String) -> Unit
 ) {
-    var text by rememberSaveable { mutableStateOf("") }
-    val canSend = isReady && !isGenerating && text.isNotBlank()
+    var inputText by rememberSaveable { mutableStateOf("") }
 
     Surface(
-        color = CardBackground,
-        shadowElevation = 8.dp
+        color = ScreenBackground,
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Text Input Field
+                // Rounded Input Text Field
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = inputText,
+                    onValueChange = { inputText = it },
                     placeholder = {
                         Text(
-                            text = if (isReady) "Ask on-device AI anything..." else "Setup or download model to start...",
-                            fontSize = 15.sp,
-                            color = TextMuted
+                            text = if (isReady) "Ask NewsAIBuddy..." else "Load a model to start chat...",
+                            color = TextMuted,
+                            fontSize = 15.sp
                         )
                     },
                     enabled = isReady && !isGenerating,
+                    singleLine = false,
+                    maxLines = 4,
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Send
                     ),
                     keyboardActions = KeyboardActions(
                         onSend = {
-                            if (canSend) {
-                                onSendMessage(text.trim())
-                                text = ""
+                            if (inputText.isNotBlank() && isReady && !isGenerating) {
+                                onSendMessage(inputText)
+                                inputText = ""
                             }
                         }
                     ),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = CardBackground,
+                        unfocusedContainerColor = CardBackground,
+                        disabledContainerColor = Color(0xFFF3F4F6),
                         focusedBorderColor = RustPrimary,
                         unfocusedBorderColor = CardBorder,
-                        focusedContainerColor = CardBackground,
-                        unfocusedContainerColor = CardBackground
+                        disabledBorderColor = CardBorder
                     ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp)
+                    modifier = Modifier.weight(1f)
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-                // Upward Arrow Send Button
+                // Rust Circle Upward-Arrow Send Button
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (canSend) RustPrimary else RustPrimary.copy(alpha = 0.4f),
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clickable(enabled = canSend) {
-                            if (canSend) {
-                                onSendMessage(text.trim())
-                                text = ""
-                            }
+                    onClick = {
+                        if (inputText.isNotBlank() && isReady && !isGenerating) {
+                            onSendMessage(inputText)
+                            inputText = ""
                         }
+                    },
+                    enabled = inputText.isNotBlank() && isReady && !isGenerating,
+                    shape = CircleShape,
+                    color = if (inputText.isNotBlank() && isReady && !isGenerating) RustPrimary else Color(0xFFE5E7EB),
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (isGenerating) {
@@ -1108,26 +2255,37 @@ private fun ChatBotInputSection(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Filled.ArrowUpward,
+                                imageVector = Icons.Default.ArrowUpward,
                                 contentDescription = "Send",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                tint = if (inputText.isNotBlank() && isReady && !isGenerating) Color.White else TextMuted,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // AI Disclaimer Text
-            Text(
-                text = "100% On-Device AI • No data leaves your phone • Verify important info",
-                fontSize = 11.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Subtitle status badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Runs 100% on-device via LiteRT-LM • Zero data leaves phone",
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+            }
         }
     }
 }

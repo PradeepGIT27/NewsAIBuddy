@@ -1,9 +1,14 @@
 package com.support.tech.newsaibuddy.ui.components
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,37 +40,135 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
 import com.support.tech.newsaibuddy.ui.theme.CardBorder
 import com.support.tech.newsaibuddy.ui.theme.RustPrimary
+import com.support.tech.newsaibuddy.ui.theme.RustSoftBg
 import com.support.tech.newsaibuddy.ui.theme.TextMuted
 import com.support.tech.newsaibuddy.ui.theme.TextPrimary
 import com.support.tech.newsaibuddy.ui.theme.TextSecondary
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+
+/**
+ * Creates an animated linear gradient brush representing a shimmer effect.
+ */
+@Composable
+fun shimmerBrush(showShimmer: Boolean = true, targetValue: Float = 1000f): Brush {
+    return if (showShimmer) {
+        val shimmerColors = listOf(
+            Color(0xFFE2E8F0),
+            Color(0xFFF1F5F9),
+            Color(0xFFE2E8F0)
+        )
+
+        val transition = rememberInfiniteTransition(label = "ShimmerTransition")
+        val translateAnimation = transition.animateFloat(
+            initialValue = 0f,
+            targetValue = targetValue,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "ShimmerTranslate"
+        )
+
+        Brush.linearGradient(
+            colors = shimmerColors,
+            start = Offset(translateAnimation.value - 300f, translateAnimation.value - 300f),
+            end = Offset(translateAnimation.value, translateAnimation.value)
+        )
+    } else {
+        Brush.linearGradient(
+            colors = listOf(Color.Transparent, Color.Transparent),
+            start = Offset.Zero,
+            end = Offset.Zero
+        )
+    }
+}
+
+/**
+ * Image composable that displays an animated shimmer gradient while loading,
+ * leverages Coil memory & disk caching, and shows a fallback placeholder icon on error.
+ */
+@Composable
+fun ShimmerAsyncImage(
+    model: Any?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    shape: Shape = RoundedCornerShape(12.dp)
+) {
+    val context = LocalContext.current
+    val imageRequest = remember(model) {
+        ImageRequest.Builder(context)
+            .data(model)
+            .crossfade(true)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
+
+    SubcomposeAsyncImage(
+        model = imageRequest,
+        contentDescription = contentDescription,
+        contentScale = contentScale,
+        modifier = modifier.clip(shape),
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(shimmerBrush())
+            )
+        },
+        error = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFF1F5F9)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BrokenImage,
+                    contentDescription = "Failed to load image",
+                    tint = TextMuted,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    )
+}
 
 /**
  * Editorial News Card:
  * - Tap card to toggle expansion
- * - When expanded, displays image (via Coil AsyncImage) and complete article details
+ * - When expanded, displays image (with animated Shimmer placeholder & caching) and article details
  * - Bottom "Read full article" button navigates to the reference detail screen
  */
 @Composable
@@ -76,6 +182,7 @@ fun NewsArticleCard(
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
     Card(
+        onClick = { isExpanded = !isExpanded },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         border = BorderStroke(1.dp, CardBorder),
@@ -83,7 +190,6 @@ fun NewsArticleCard(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clickable { isExpanded = !isExpanded }
     ) {
         Column(
             modifier = Modifier
@@ -143,25 +249,19 @@ fun NewsArticleCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // When expanded: show the Article Image if available
+            // When expanded: show the Article Image with Shimmer if available
             if (isExpanded) {
                 if (!article.urlToImage.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Box(
+                    ShimmerAsyncImage(
+                        model = article.urlToImage,
+                        contentDescription = article.title,
+                        contentScale = ContentScale.Crop,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFF3F4F6)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AsyncImage(
-                            model = article.urlToImage,
-                            contentDescription = article.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    )
                 }
 
                 // Author / Published date metadata if available
@@ -299,7 +399,91 @@ fun EmptyStateComponent(message: String = "No stories found") {
         Text(
             text = message,
             color = TextMuted,
-            fontSize = 15.sp
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center
         )
+    }
+}
+
+/**
+ * User-friendly No Internet / Network Error view with icon, title, message, and Retry button.
+ */
+@Composable
+fun NetworkErrorComponent(
+    message: String = "No internet connection. Please check your network and try again.",
+    onRetry: (() -> Unit)? = null
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = RustSoftBg,
+                modifier = Modifier.size(72.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.WifiOff,
+                        contentDescription = "No Internet",
+                        tint = RustPrimary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "No Internet Connection",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = message,
+                fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            if (onRetry != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onRetry,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Retry",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Retry",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
     }
 }

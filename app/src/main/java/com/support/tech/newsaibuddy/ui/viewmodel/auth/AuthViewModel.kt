@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -23,17 +24,22 @@ data class UserProfile(
 )
 
 /**
- * ViewModel managing authentication state using Google Sign-In via Credential Manager.
- * Session is persisted in DataStore so it survives app restarts.
+ * ViewModel managing authentication state and user preference settings (such as Dark Mode).
+ * Session & preferences are persisted in DataStore so they survive app restarts.
  */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val userSessionManager: UserSessionManager
 ) : ViewModel() {
 
-    /** Whether the user is currently logged in (observed from DataStore). */
-    val isLoggedIn: StateFlow<Boolean> = userSessionManager.isLoggedIn
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** Whether the user is currently logged in (observed from DataStore). null = loading session. */
+    val isLoggedIn: StateFlow<Boolean?> = userSessionManager.isLoggedIn
+        .map<Boolean, Boolean?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Dark mode theme setting: "system" (default), "light", or "dark". */
+    val darkModeSetting: StateFlow<String> = userSessionManager.darkModeSetting
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "system")
 
     private val _userProfile = MutableStateFlow(UserProfile())
     val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
@@ -69,6 +75,15 @@ class AuthViewModel @Inject constructor(
     }
 
     /**
+     * Updates dark mode setting ("system", "light", or "dark") and persists it.
+     */
+    fun setDarkModeSetting(setting: String) {
+        viewModelScope.launch {
+            userSessionManager.setDarkModeSetting(setting)
+        }
+    }
+
+    /**
      * Called after a successful Google Sign-In.
      * Saves session in DataStore for persistence.
      */
@@ -79,6 +94,18 @@ class AuthViewModel @Inject constructor(
             _userProfile.value = UserProfile(displayName, email, photoUrl, userId)
             _isLoading.value = false
         }
+    }
+
+    /**
+     * Signs in as a demo/guest user (enabling Play Store reviewers to fully access app features).
+     */
+    fun signInAsGuest() {
+        onSignInSuccess(
+            displayName = "Demo Reviewer",
+            email = "playconsole.reviewer@example.com",
+            photoUrl = "",
+            userId = "demo_reviewer_123"
+        )
     }
 
     fun onSignInError(message: String) {

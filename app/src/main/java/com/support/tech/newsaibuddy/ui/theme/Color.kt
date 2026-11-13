@@ -1,27 +1,55 @@
 package com.support.tech.newsaibuddy.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 // Warm terracotta / rust palette from Figma design
 val RustPrimary = Color(0xFFBA4A00)
 val RustDark = Color(0xFFA04000)
 val RustAccent = Color(0xFFC05621)
-val RustSoftBg = Color(0xFFFFF3E0)
 
-// Neutral background and card colors
-val ScreenBackground = Color(0xFFFAF9F6)
-val CardBackground = Color(0xFFFFFFFF)
-val CardBorder = Color(0xFFE5E7EB)
+// Dynamic theme-aware colors (automatically adapt to Light/Dark Mode)
+val RustSoftBg: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.surfaceVariant
 
-// Text colors
-val TextPrimary = Color(0xFF111827)
-val TextSecondary = Color(0xFF6B7280)
-val TextMuted = Color(0xFF9CA3AF)
+val ScreenBackground: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.background
 
-// Chat specific colors
-val UserBubbleBackground = Color(0xFFFFFBEB)
-val UserBubbleBorder = Color(0xFFFDE68A)
-val BotBadgeBackground = Color(0xFFFEF3C7)
+val CardBackground: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.surface
+
+val CardBorder: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.outlineVariant
+
+val TextPrimary: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.onBackground
+
+val TextSecondary: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.onSurfaceVariant
+
+val TextMuted: Color
+    @Composable
+    get() = MaterialTheme.colorScheme.outline
+
+val UserBubbleBackground: Color
+    @Composable
+    get() = if (MaterialTheme.colorScheme.background == Color(0xFF121214)) Color(0xFF2A2318) else Color(0xFFFFFBEB)
+
+val UserBubbleBorder: Color
+    @Composable
+    get() = if (MaterialTheme.colorScheme.background == Color(0xFF121214)) Color(0xFF4A3B1F) else Color(0xFFFDE68A)
+
+val BotBadgeBackground: Color
+    @Composable
+    get() = if (MaterialTheme.colorScheme.background == Color(0xFF121214)) Color(0xFF332715) else Color(0xFFFEF3C7)
+
 val BotAvatarBg = Color(0xFFBA4A00)
 
 // Legacy colors kept for backward compatibility
