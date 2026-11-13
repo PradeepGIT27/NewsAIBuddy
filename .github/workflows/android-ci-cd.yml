@@ -145,7 +145,7 @@ jobs:
           retention-days: 14
 
       - name: 📲 Deploy AAB to Google Play Store Internal Track
-        uses: rstudio/play-store-upload@v1
+        uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
           packageName: com.support.tech.newsaibuddy
