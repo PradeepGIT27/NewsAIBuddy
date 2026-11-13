@@ -44,6 +44,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,7 +73,9 @@ import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.support.tech.newsaibuddy.ui.theme.NewsAIBuddyTheme
 import com.support.tech.newsaibuddy.ui.theme.RustDark
@@ -115,40 +118,76 @@ fun LoginScreen(
             coroutineScope.launch {
                 try {
                     val credentialManager = CredentialManager.create(context)
-                    val googleIdOption = GetGoogleIdOption.Builder()
-                        .setFilterByAuthorizedAccounts(false)
-                        .setServerClientId(WEB_CLIENT_ID)
-                        .setAutoSelectEnabled(false)
-                        .setNonce(java.util.UUID.randomUUID().toString())
-                        .build()
+                    val nonce = java.util.UUID.randomUUID().toString()
 
-                    val request = GetCredentialRequest.Builder()
-                        .addCredentialOption(googleIdOption)
-                        .build()
+                    // Try GetSignInWithGoogleOption first (recommended for explicit sign-in button clicks)
+                    val result = try {
+                        val signInWithGoogleOption = GetSignInWithGoogleOption.Builder(
+                            serverClientId = WEB_CLIENT_ID
+                        )
+                            .setNonce(nonce)
+                            .build()
 
-                    val result = credentialManager.getCredential(
-                        context = context as Activity,
-                        request = request
-                    )
+                        val request = GetCredentialRequest.Builder()
+                            .addCredentialOption(signInWithGoogleOption)
+                            .build()
+
+                        credentialManager.getCredential(
+                            context = context as Activity,
+                            request = request
+                        )
+                    } catch (_: Exception) {
+                        // Fallback to GetGoogleIdOption if GetSignInWithGoogleOption fails or returns NoCredentialException
+                        val googleIdOption = GetGoogleIdOption.Builder()
+                            .setFilterByAuthorizedAccounts(false)
+                            .setServerClientId(WEB_CLIENT_ID)
+                            .setAutoSelectEnabled(false)
+                            .setNonce(nonce)
+                            .build()
+
+                        val request = GetCredentialRequest.Builder()
+                            .addCredentialOption(googleIdOption)
+                            .build()
+
+                        credentialManager.getCredential(
+                            context = context as Activity,
+                            request = request
+                        )
+                    }
 
                     val credential = result.credential
-                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
 
-                    authViewModel.onSignInSuccess(
-                        displayName = googleIdTokenCredential.displayName ?: "User",
-                        email = googleIdTokenCredential.id,
-                        photoUrl = googleIdTokenCredential.profilePictureUri?.toString() ?: "",
-                        userId = googleIdTokenCredential.idToken
-                    )
+                        authViewModel.onSignInSuccess(
+                            displayName = googleIdTokenCredential.displayName ?: "User",
+                            email = googleIdTokenCredential.id,
+                            photoUrl = googleIdTokenCredential.profilePictureUri?.toString() ?: "",
+                            userId = googleIdTokenCredential.idToken
+                        )
+                    } else {
+                        Log.e(TAG, "Unexpected credential type returned: ${credential.type}")
+                        authViewModel.onSignInError("Unexpected credential format received.")
+                    }
                 } catch (_: GetCredentialCancellationException) {
                     authViewModel.setLoading(false)
                     Log.d(TAG, "Sign-in cancelled by user")
+                } catch (e: NoCredentialException) {
+                    authViewModel.setLoading(false)
+                    Log.e(TAG, "No credential available on device", e)
+                    authViewModel.onSignInError(
+                        "Google Sign-In failed: No credential found. " +
+                        "Make sure a Google Account is logged into device settings and your debug SHA-1 is registered in Google Cloud Console."
+                    )
                 } catch (e: Exception) {
                     authViewModel.setLoading(false)
                     Log.e(TAG, "Sign-in failed [${e.javaClass.simpleName}]: ${e.message}", e)
-                    authViewModel.onSignInError("Sign-in failed (${e.javaClass.simpleName}): ${e.message}")
+                    authViewModel.onSignInError("Sign-in failed: ${e.message ?: "Check SHA-1 & Google account setup"}")
                 }
             }
+        },
+        onGuestSignInClick = {
+            authViewModel.signInAsGuest()
         }
     )
 }
@@ -157,7 +196,8 @@ fun LoginScreen(
 fun LoginScreenContent(
     isLoading: Boolean,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    onGoogleSignInClick: () -> Unit = {}
+    onGoogleSignInClick: () -> Unit = {},
+    onGuestSignInClick: () -> Unit = {}
 ) {
     val isPreview = androidx.compose.ui.platform.LocalInspectionMode.current
     var animateHeader by remember { mutableStateOf(isPreview) }
@@ -444,7 +484,22 @@ fun LoginScreenContent(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Guest Sign-In Option
+                        TextButton(
+                            onClick = onGuestSignInClick,
+                            enabled = !isLoading
+                        ) {
+                            Text(
+                                text = "Continue as Guest",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = RustPrimary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         // Security assurance
                         Row(

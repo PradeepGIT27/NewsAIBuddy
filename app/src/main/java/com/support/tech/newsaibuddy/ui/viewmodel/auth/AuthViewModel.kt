@@ -96,6 +96,18 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Signs in as a demo/guest user (enabling Play Store reviewers to fully access app features).
+     */
+    fun signInAsGuest() {
+        onSignInSuccess(
+            displayName = "Demo Reviewer",
+            email = "playconsole.reviewer@example.com",
+            photoUrl = "",
+            userId = "demo_reviewer_123"
+        )
+    }
+
     fun onSignInError(message: String) {
         _errorMessage.value = message
         _isLoading.value = false
