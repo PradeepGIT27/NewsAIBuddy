@@ -26,12 +26,20 @@ android {
     val botKey = formatKey(properties.getProperty("botKey"))
     val newsKey = formatKey(properties.getProperty("newsKey"))
 
+    val envVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
+        ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
+        ?: 7
+
+    val envVersionName = System.getenv("VERSION_NAME")
+        ?: project.findProperty("versionName")?.toString()
+        ?: "1.0.3"
+
     defaultConfig {
         applicationId = "com.support.tech.newsaibuddy"
         minSdk = 24
         targetSdk = 37
-        versionCode = 7
-        versionName = "1.0.3"
+        versionCode = envVersionCode
+        versionName = envVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -47,7 +55,17 @@ android {
 
     signingConfigs {
         create("release") {
-            if (keystorePropertiesFile.exists()) {
+            val envStoreFile = System.getenv("KEYSTORE_FILE")
+            val envStorePassword = System.getenv("KEYSTORE_PASSWORD")
+            val envKeyAlias = System.getenv("KEY_ALIAS")
+            val envKeyPassword = System.getenv("KEY_PASSWORD")
+
+            if (!envStoreFile.isNullOrBlank() && !envStorePassword.isNullOrBlank()) {
+                storeFile = file(envStoreFile)
+                storePassword = envStorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
+            } else if (keystorePropertiesFile.exists()) {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
                 val storeFilePath = keystoreProperties["storeFile"] as String
