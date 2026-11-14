@@ -59,7 +59,7 @@ class ChatBotViewModel @Inject constructor(
     }
 
     fun playTts(id: String, text: String, title: String) {
-        ttsManager.speak(id, text, title)
+        ttsManager.togglePlayPause(id, text, title)
     }
 
     fun pauseTts() {

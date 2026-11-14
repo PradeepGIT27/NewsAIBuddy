@@ -1,117 +1,52 @@
 package com.support.tech.newsaibuddy.data.local
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.room.Room
+import com.support.tech.newsaibuddy.data.local.db.AppDatabase
+import com.support.tech.newsaibuddy.data.local.db.ArticleEntity
+import com.support.tech.newsaibuddy.data.local.db.NewsDao
 import com.support.tech.newsaibuddy.domain.model.Article
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-
-private val Context.savedArticlesDataStore: DataStore<Preferences> by preferencesDataStore(name = "saved_articles")
+import kotlinx.coroutines.withContext
 
 /**
- * Serializable wrapper for [Article] to store in DataStore.
+ * Manages saved articles persistence using Room Database safely on [Dispatchers.IO].
+ * Articles survive app close/open and are managed through [NewsDao].
  */
-@Serializable
-data class SerializableArticle(
-    val author: String? = null,
-    val title: String? = null,
-    val description: String? = null,
-    val url: String? = null,
-    val urlToImage: String? = null,
-    val publishedAt: String? = null,
-    val content: String? = null,
-    val sourceName: String? = null
-)
+class SavedArticlesManager(private val newsDao: NewsDao) {
 
-/**
- * Manages saved articles persistence using DataStore Preferences.
- * Articles survive app close/open and are only removed when manually cleared.
- */
-class SavedArticlesManager(private val context: Context) {
+    constructor(context: Context) : this(
+        Room.databaseBuilder(
+            context.applicationContext,
+            AppDatabase::class.java,
+            "news_ai_buddy.db"
+        ).fallbackToDestructiveMigration().build().newsDao()
+    )
 
-    companion object {
-        private val KEY_SAVED_ARTICLES = stringPreferencesKey("saved_articles_json")
+    val savedArticles: Flow<List<Article>> = newsDao.getSavedArticles().map { entities ->
+        entities.map { it.toDomain() }
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
+    suspend fun saveArticles(articles: List<Article>) = withContext(Dispatchers.IO) {
+        val entities = articles.map { ArticleEntity.fromDomain(it) }
+        newsDao.insertArticles(entities)
+    }
 
-    val savedArticles: Flow<List<Article>> = context.savedArticlesDataStore.data.map { prefs ->
-        val jsonString = prefs[KEY_SAVED_ARTICLES] ?: "[]"
-        try {
-            json.decodeFromString<List<SerializableArticle>>(jsonString).map { it.toDomain() }
-        } catch (e: Exception) {
-            emptyList()
+    suspend fun addArticle(article: Article) = withContext(Dispatchers.IO) {
+        newsDao.insertArticles(listOf(ArticleEntity.fromDomain(article)))
+    }
+
+    suspend fun removeArticle(article: Article) = withContext(Dispatchers.IO) {
+        val targetUrl = article.url?.takeIf { it.isNotBlank() }
+            ?: article.title?.takeIf { it.isNotBlank() }
+        if (targetUrl != null) {
+            newsDao.deleteArticleByUrl(targetUrl)
         }
     }
 
-    suspend fun saveArticles(articles: List<Article>) {
-        val serializable = articles.map { it.toSerializable() }
-        val jsonString = json.encodeToString(serializable)
-        context.savedArticlesDataStore.edit { prefs ->
-            prefs[KEY_SAVED_ARTICLES] = jsonString
-        }
-    }
-
-    suspend fun addArticle(article: Article) {
-        context.savedArticlesDataStore.edit { prefs ->
-            val current = prefs[KEY_SAVED_ARTICLES] ?: "[]"
-            val list = try {
-                json.decodeFromString<MutableList<SerializableArticle>>(current)
-            } catch (e: Exception) {
-                mutableListOf()
-            }
-            if (list.none { it.url == article.url }) {
-                list.add(article.toSerializable())
-            }
-            prefs[KEY_SAVED_ARTICLES] = json.encodeToString(list)
-        }
-    }
-
-    suspend fun removeArticle(article: Article) {
-        context.savedArticlesDataStore.edit { prefs ->
-            val current = prefs[KEY_SAVED_ARTICLES] ?: "[]"
-            val list = try {
-                json.decodeFromString<MutableList<SerializableArticle>>(current)
-            } catch (e: Exception) {
-                mutableListOf()
-            }
-            list.removeAll { it.url == article.url }
-            prefs[KEY_SAVED_ARTICLES] = json.encodeToString(list)
-        }
-    }
-
-    suspend fun clearAll() {
-        context.savedArticlesDataStore.edit { prefs ->
-            prefs[KEY_SAVED_ARTICLES] = "[]"
-        }
+    suspend fun clearAll() = withContext(Dispatchers.IO) {
+        newsDao.clearAllSavedArticles()
     }
 }
-
-private fun Article.toSerializable() = SerializableArticle(
-    author = author,
-    title = title,
-    description = description,
-    url = url,
-    urlToImage = urlToImage,
-    publishedAt = publishedAt,
-    content = content,
-    sourceName = sourceName
-)
-
-private fun SerializableArticle.toDomain() = Article(
-    author = author,
-    title = title,
-    description = description,
-    url = url,
-    urlToImage = urlToImage,
-    publishedAt = publishedAt,
-    content = content,
-    sourceName = sourceName
-)
