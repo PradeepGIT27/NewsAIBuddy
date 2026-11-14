@@ -1,7 +1,11 @@
 package com.support.tech.newsaibuddy.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import com.support.tech.newsaibuddy.data.api.ResourceState
 import com.support.tech.newsaibuddy.data.datasource.news.NewsDataSource
+import com.support.tech.newsaibuddy.data.paging.NewsPagingSource
 import com.support.tech.newsaibuddy.data.remote.mapper.toDomain
 import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.domain.repository.NewsRepository
@@ -59,6 +63,16 @@ class NewsRepositoryImpl @Inject constructor(
             android.util.Log.e("NewsRepository", "Exception fetching news", e)
             emit(ResourceState.Error(mapExceptionToFriendlyMessage(e)))
         }
+    }
+
+    override fun getNewsPagingStream(category: String): Flow<PagingData<Article>> {
+        return Pager(
+            config = PagingConfig(
+                pageSize = 20,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { NewsPagingSource(newsDataSource, category) }
+        ).flow
     }
 
     private fun mapHttpErrorCode(code: Int, serverMessage: String): String {
