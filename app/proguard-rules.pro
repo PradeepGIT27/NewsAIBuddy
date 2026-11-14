@@ -46,6 +46,55 @@
 -keep class com.support.tech.newsaibuddy.domain.model.** { *; }
 -keepclassmembers class com.support.tech.newsaibuddy.domain.model.** { *; }
 
+# Room Database, Entities, DAOs & Generated Implementation
+-keep class androidx.room.** { *; }
+-dontwarn androidx.room.**
+-keep class * extends androidx.room.RoomDatabase { *; }
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+-keepclassmembers class * {
+    @androidx.room.* <fields>;
+    @androidx.room.* <methods>;
+}
+-keep class com.support.tech.newsaibuddy.data.local.db.** { *; }
+-keepclassmembers class com.support.tech.newsaibuddy.data.local.db.** { *; }
+
+# Kotlinx Serialization
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers class * {
+    @kotlinx.serialization.Serializable <fields>;
+    @kotlinx.serialization.Serializable *;
+}
+-keepclassmembers class * {
+    *** Companion;
+}
+-keepclassmembers class * {
+    *** serializer(...);
+}
+-keep class kotlinx.serialization.** { *; }
+-dontwarn kotlinx.serialization.**
+-keep class com.support.tech.newsaibuddy.data.local.SerializableArticle { *; }
+-keep class com.support.tech.newsaibuddy.data.local.SerializableChatMessage { *; }
+-keep class com.support.tech.newsaibuddy.data.local.ChatConversation { *; }
+
+# Hilt / Dagger DI
+-keep class dagger.hilt.** { *; }
+-keepclassmembers class dagger.hilt.** { *; }
+-keep class com.support.tech.newsaibuddy.di.** { *; }
+-keepclassmembers class com.support.tech.newsaibuddy.di.** { *; }
+-keep class * extends androidx.lifecycle.ViewModel { *; }
+-keepclassmembers class * extends androidx.lifecycle.ViewModel { *; }
+-keep @dagger.hilt.android.lifecycle.HiltViewModel class * { *; }
+
+# Paging 3
+-keep class androidx.paging.** { *; }
+-dontwarn androidx.paging.**
+-keep class com.support.tech.newsaibuddy.data.paging.** { *; }
+
+# DataStore
+-keep class androidx.datastore.** { *; }
+-dontwarn androidx.datastore.**
+
 # Credential Manager & Google Identity
 -keep class androidx.credentials.** { *; }
 -keepclassmembers class androidx.credentials.** { *; }
@@ -73,4 +122,3 @@
 -keep class com.google.gson.** { *; }
 -keepclassmembers class com.google.gson.** { *; }
 -dontwarn com.google.gson.**
-
