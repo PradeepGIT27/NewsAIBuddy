@@ -167,6 +167,7 @@ jobs:
           releaseFiles: app/build/outputs/bundle/release/*.aab
           tracks: internal
           status: completed
+          whatsNewDirectory: distribution/whatsnew
 
       - name: 🧹 Clean up decoded Keystore & Secrets
         if: always()
