@@ -14,6 +14,8 @@ import com.support.tech.newsaibuddy.data.litertlm.LiteRtLmService
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModelManager
 import com.support.tech.newsaibuddy.domain.repository.NewsRepository
+import com.support.tech.newsaibuddy.utils.TtsManager
+import com.support.tech.newsaibuddy.utils.TtsState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +27,7 @@ import java.util.UUID
 import javax.inject.Inject
 
 /**
- * ViewModel for handling on-device AI chat interactions using Google LiteRT-LM.
+ * ViewModel for handling on-device AI chat interactions using Google LiteRT-LM & TTS playback.
  * Manages model downloading, initialization, switching, streaming generation, conversation history, and UI state.
  */
 @HiltViewModel
@@ -33,7 +35,8 @@ class ChatBotViewModel @Inject constructor(
     private val liteRtModelManager: LiteRtModelManager,
     private val liteRtLmService: LiteRtLmService,
     private val newsRepository: NewsRepository,
-    private val chatHistoryManager: ChatHistoryManager
+    private val chatHistoryManager: ChatHistoryManager,
+    private val ttsManager: TtsManager
 ) : ViewModel() {
 
     private val initialWelcomeMessage = ChatBotMessage(
@@ -49,6 +52,31 @@ class ChatBotViewModel @Inject constructor(
         )
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+    val ttsState: StateFlow<TtsState> = ttsManager.ttsState
+
+    fun playOrPauseTts(messageId: String, text: String, title: String = "AI Assistant Response") {
+        ttsManager.togglePlayPause(messageId, text, title)
+    }
+
+    fun playTts(id: String, text: String, title: String) {
+        ttsManager.speak(id, text, title)
+    }
+
+    fun pauseTts() {
+        ttsManager.pause()
+    }
+
+    fun resumeTts() {
+        ttsManager.resume()
+    }
+
+    fun stopTts() {
+        ttsManager.stop()
+    }
+
+    fun setTtsSpeechRate(rate: Float) {
+        ttsManager.setSpeechRate(rate)
+    }
 
     private var loadJob: Job? = null
     private var downloadJob: Job? = null

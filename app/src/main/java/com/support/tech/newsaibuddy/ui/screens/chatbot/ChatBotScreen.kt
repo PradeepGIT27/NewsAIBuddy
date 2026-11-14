@@ -27,6 +27,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.ChromeReaderMode
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowOutward
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -99,11 +102,17 @@ import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
 import com.support.tech.newsaibuddy.data.local.ChatConversation
 import com.support.tech.newsaibuddy.data.litertlm.DownloadState
 import com.support.tech.newsaibuddy.data.litertlm.LiteRtModel
+import androidx.compose.runtime.remember
+import com.support.tech.newsaibuddy.ui.components.ReaderContent
+import com.support.tech.newsaibuddy.ui.components.ReaderModeSheet
+import com.support.tech.newsaibuddy.ui.components.TtsControlBar
+import com.support.tech.newsaibuddy.utils.TtsStatus
 import com.support.tech.newsaibuddy.ui.theme.BotAvatarBg
 import com.support.tech.newsaibuddy.ui.theme.BotBadgeBackground
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
 import com.support.tech.newsaibuddy.ui.theme.CardBorder
 import com.support.tech.newsaibuddy.ui.theme.RustPrimary
+import com.support.tech.newsaibuddy.ui.theme.RustSoftBg
 import com.support.tech.newsaibuddy.ui.theme.ScreenBackground
 import com.support.tech.newsaibuddy.ui.theme.TextMuted
 import com.support.tech.newsaibuddy.ui.theme.TextPrimary
@@ -134,7 +143,10 @@ fun ChatBotScreen(
     chatViewModel: ChatBotViewModel = hiltViewModel()
 ) {
     val chatUiState by chatViewModel.uiState.collectAsState()
+    val ttsState by chatViewModel.ttsState.collectAsState()
     val listState = rememberLazyListState()
+
+    var activeReaderContent by remember { mutableStateOf<ReaderContent?>(null) }
 
     // Auto-scroll to latest message
     LaunchedEffect(chatUiState.messages.size) {
@@ -145,101 +157,152 @@ fun ChatBotScreen(
 
     val isModelReady = chatUiState.modelStatus is ModelStatus.Ready
 
-    Scaffold(
-        containerColor = ScreenBackground,
-        topBar = {
-            ChatBotTopBar(
-                modelStatus = chatUiState.modelStatus,
-                activeModel = chatUiState.activeModel,
-                downloadState = chatUiState.downloadState,
-                conversationCount = chatUiState.conversations.size,
-                onBackClick = { navController.popBackStack() },
-                onOpenModelSelector = { chatViewModel.toggleModelSelector(true) },
-                onOpenHistory = { chatViewModel.toggleHistorySheet(true) },
-                onNewChat = { chatViewModel.startNewConversation() }
-            )
-        },
-        bottomBar = {
-            ChatBotInputSection(
-                isReady = isModelReady,
-                isGenerating = chatUiState.isGenerating,
-                onSendMessage = { text ->
-                    chatViewModel.sendMessage(text)
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Sticky Download Progress Banner at top of screen
-            if (chatUiState.downloadState is DownloadState.Downloading) {
-                TopDownloadProgressBanner(
-                    downloadState = chatUiState.downloadState as DownloadState.Downloading,
-                    onCancel = { chatViewModel.cancelDownload() }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = ScreenBackground,
+            topBar = {
+                ChatBotTopBar(
+                    modelStatus = chatUiState.modelStatus,
+                    activeModel = chatUiState.activeModel,
+                    downloadState = chatUiState.downloadState,
+                    conversationCount = chatUiState.conversations.size,
+                    onBackClick = { navController.popBackStack() },
+                    onOpenModelSelector = { chatViewModel.toggleModelSelector(true) },
+                    onOpenHistory = { chatViewModel.toggleHistorySheet(true) },
+                    onNewChat = { chatViewModel.startNewConversation() }
+                )
+            },
+            bottomBar = {
+                ChatBotInputSection(
+                    isReady = isModelReady,
+                    isGenerating = chatUiState.isGenerating,
+                    onSendMessage = { text ->
+                        chatViewModel.sendMessage(text)
+                    }
                 )
             }
-
-            // "NEW CONVERSATION" Divider
-            NewConversationDivider(
-                title = chatUiState.currentConversationTitle,
-                onNewChatClick = { chatViewModel.startNewConversation() }
-            )
-
-            // Chat messages list
-            LazyColumn(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) { paddingValues ->
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(paddingValues)
             ) {
-                // If model needs setup or downloading, or has error, show the on-device model card first
-                if (chatUiState.modelStatus !is ModelStatus.Ready) {
+                // Sticky Download Progress Banner at top of screen
+                if (chatUiState.downloadState is DownloadState.Downloading) {
+                    TopDownloadProgressBanner(
+                        downloadState = chatUiState.downloadState as DownloadState.Downloading,
+                        onCancel = { chatViewModel.cancelDownload() }
+                    )
+                }
+
+                // "NEW CONVERSATION" Divider
+                NewConversationDivider(
+                    title = chatUiState.currentConversationTitle,
+                    onNewChatClick = { chatViewModel.startNewConversation() }
+                )
+
+                // Chat messages list
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    // If model needs setup or downloading, or has error, show the on-device model card first
+                    if (chatUiState.modelStatus !is ModelStatus.Ready) {
+                        item {
+                            OnDeviceModelCard(
+                                modelStatus = chatUiState.modelStatus,
+                                downloadState = chatUiState.downloadState,
+                                downloadedModelIds = chatUiState.downloadedModelIds,
+                                activeModel = chatUiState.activeModel,
+                                onSelectModel = { model ->
+                                    chatViewModel.selectModel(model)
+                                },
+                                onLoadWithCpu = { model ->
+                                    chatViewModel.loadModel(model, forceCpu = true)
+                                },
+                                onCancelDownload = {
+                                    chatViewModel.cancelDownload()
+                                },
+                                onRefresh = {
+                                    chatViewModel.checkAndInitLocalModel()
+                                },
+                                onOpenModelSelector = {
+                                    chatViewModel.toggleModelSelector(true)
+                                }
+                            )
+                        }
+                    }
+
+                    items(chatUiState.messages, key = { it.id }) { message ->
+                        val isThisSpeaking = ttsState.currentId == message.id && ttsState.status == TtsStatus.SPEAKING
+                        val isThisPaused = ttsState.currentId == message.id && ttsState.status == TtsStatus.PAUSED
+
+                        ChatBubbleItem(
+                            message = message,
+                            isTtsSpeaking = isThisSpeaking,
+                            isTtsPaused = isThisPaused,
+                            onTtsClick = {
+                                chatViewModel.playOrPauseTts(message.id, message.text)
+                            },
+                            onReaderModeClick = {
+                                activeReaderContent = ReaderContent(
+                                    id = message.id,
+                                    title = "AI Companion Response",
+                                    sourceName = "NewsAIBuddy AI",
+                                    body = message.text,
+                                    isChatBotResponse = true
+                                )
+                            }
+                        )
+                    }
+
+                    // Starter Prompts section ("A PLACE TO START")
                     item {
-                        OnDeviceModelCard(
-                            modelStatus = chatUiState.modelStatus,
-                            downloadState = chatUiState.downloadState,
-                            downloadedModelIds = chatUiState.downloadedModelIds,
-                            activeModel = chatUiState.activeModel,
-                            onSelectModel = { model ->
-                                chatViewModel.selectModel(model)
-                            },
-                            onLoadWithCpu = { model ->
-                                chatViewModel.loadModel(model, forceCpu = true)
-                            },
-                            onCancelDownload = {
-                                chatViewModel.cancelDownload()
-                            },
-                            onRefresh = {
-                                chatViewModel.checkAndInitLocalModel()
-                            },
-                            onOpenModelSelector = {
-                                chatViewModel.toggleModelSelector(true)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        PlaceToStartSection(
+                            prompts = chatUiState.starterPrompts,
+                            enabled = isModelReady && !chatUiState.isGenerating,
+                            onPromptClick = { prompt ->
+                                chatViewModel.sendMessage(prompt)
                             }
                         )
                     }
                 }
-
-                items(chatUiState.messages, key = { it.id }) { message ->
-                    ChatBubbleItem(message = message)
-                }
-
-                // Starter Prompts section ("A PLACE TO START")
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PlaceToStartSection(
-                        prompts = chatUiState.starterPrompts,
-                        enabled = isModelReady && !chatUiState.isGenerating,
-                        onPromptClick = { prompt ->
-                            chatViewModel.sendMessage(prompt)
-                        }
-                    )
-                }
             }
+        }
+
+        // Floating Audio Playback Control Bar
+        TtsControlBar(
+            ttsState = ttsState,
+            onPlayPauseClick = {
+                if (ttsState.status == TtsStatus.SPEAKING) {
+                    chatViewModel.pauseTts()
+                } else {
+                    chatViewModel.resumeTts()
+                }
+            },
+            onStopClick = { chatViewModel.stopTts() },
+            onSpeedSelected = { rate -> chatViewModel.setTtsSpeechRate(rate) },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 80.dp)
+        )
+
+        // Reader Mode Modal Sheet for ChatBot Response
+        if (activeReaderContent != null) {
+            ReaderModeSheet(
+                content = activeReaderContent,
+                ttsState = ttsState,
+                onDismiss = { activeReaderContent = null },
+                onPlayPauseTts = { id, text, title ->
+                    chatViewModel.playTts(id, text, title)
+                },
+                onStopTts = { chatViewModel.stopTts() }
+            )
         }
     }
 
@@ -1715,10 +1778,16 @@ private fun NewConversationDivider(
 }
 
 /**
- * Message Bubble matching Figma design with streaming typing support.
+ * Message Bubble matching Figma design with streaming typing support & TTS / Reader Mode integration.
  */
 @Composable
-fun ChatBubbleItem(message: ChatBotMessage) {
+fun ChatBubbleItem(
+    message: ChatBotMessage,
+    isTtsSpeaking: Boolean = false,
+    isTtsPaused: Boolean = false,
+    onTtsClick: () -> Unit = {},
+    onReaderModeClick: () -> Unit = {}
+) {
     Box(modifier = Modifier.fillMaxWidth()) {
         when (message.participant) {
             ChatBotMessageSender.USER -> {
@@ -1790,8 +1859,13 @@ fun ChatBubbleItem(message: ChatBotMessage) {
                             bottomStart = 18.dp,
                             bottomEnd = 18.dp
                         ),
-                        colors = CardDefaults.cardColors(containerColor = CardBackground),
-                        border = BorderStroke(1.dp, CardBorder),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isTtsSpeaking) RustSoftBg else CardBackground
+                        ),
+                        border = BorderStroke(
+                            width = if (isTtsSpeaking || isTtsPaused) 1.5.dp else 1.dp,
+                            color = if (isTtsSpeaking || isTtsPaused) RustPrimary else CardBorder
+                        ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         modifier = Modifier.fillMaxWidth(0.85f)
                     ) {
@@ -1805,14 +1879,52 @@ fun ChatBubbleItem(message: ChatBotMessage) {
                                     text = "CHAT BOT (OFFLINE)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = TextSecondary
+                                    color = RustPrimary
                                 )
-                                if (message.isPending) {
-                                    CircularProgressIndicator(
-                                        color = RustPrimary,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(12.dp)
-                                    )
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    if (message.text.isNotBlank() && !message.isPending) {
+                                        // TTS Listen Button
+                                        IconButton(
+                                            onClick = onTtsClick,
+                                            modifier = Modifier.size(26.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = when {
+                                                    isTtsSpeaking -> Icons.Default.Pause
+                                                    isTtsPaused -> Icons.Default.PlayArrow
+                                                    else -> Icons.AutoMirrored.Filled.VolumeUp
+                                                },
+                                                contentDescription = "Listen Response",
+                                                tint = if (isTtsSpeaking || isTtsPaused) RustPrimary else TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+
+                                        // Reader Mode Button
+                                        IconButton(
+                                            onClick = onReaderModeClick,
+                                            modifier = Modifier.size(26.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ChromeReaderMode,
+                                                contentDescription = "Reader Mode",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (message.isPending) {
+                                        CircularProgressIndicator(
+                                            color = RustPrimary,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))

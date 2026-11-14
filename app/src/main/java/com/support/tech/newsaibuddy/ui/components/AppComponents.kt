@@ -25,11 +25,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ChromeReaderMode
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.outlined.BookmarkBorder
@@ -74,6 +78,8 @@ import com.support.tech.newsaibuddy.ui.theme.RustSoftBg
 import com.support.tech.newsaibuddy.ui.theme.TextMuted
 import com.support.tech.newsaibuddy.ui.theme.TextPrimary
 import com.support.tech.newsaibuddy.ui.theme.TextSecondary
+import com.support.tech.newsaibuddy.utils.TtsState
+import com.support.tech.newsaibuddy.utils.TtsStatus
 import java.nio.charset.StandardCharsets
 
 /**
@@ -168,15 +174,20 @@ fun ShimmerAsyncImage(
 /**
  * Editorial News Card:
  * - Tap card to toggle expansion
+ * - Displays TTS Listen (Play/Pause/Resume) button & Reader Mode button
  * - When expanded, displays image (with animated Shimmer placeholder & caching) and article details
- * - Bottom "Read full article" button navigates to the reference detail screen
+ * - Bottom "Reader Mode" and "Read web article" action buttons
  */
 @Composable
 fun NewsArticleCard(
     article: Article,
     isSaved: Boolean,
+    isTtsSpeaking: Boolean = false,
+    isTtsPaused: Boolean = false,
     onBookmarkClick: () -> Unit,
-    onReadFullArticleClick: () -> Unit,
+    onTtsClick: () -> Unit = {},
+    onReaderModeClick: () -> Unit = {},
+    onReadFullArticleClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isExpanded by rememberSaveable { mutableStateOf(false) }
@@ -184,8 +195,13 @@ fun NewsArticleCard(
     Card(
         onClick = { isExpanded = !isExpanded },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground),
-        border = BorderStroke(1.dp, CardBorder),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isTtsSpeaking) RustSoftBg else CardBackground
+        ),
+        border = BorderStroke(
+            width = if (isTtsSpeaking || isTtsPaused) 1.5.dp else 1.dp,
+            color = if (isTtsSpeaking || isTtsPaused) RustPrimary else CardBorder
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -196,7 +212,7 @@ fun NewsArticleCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Top Row: Source name, Expand chevron indicator, & Bookmark icon
+            // Top Row: Source name, TTS Button, Reader Mode Button, Expand chevron & Bookmark icon
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -212,16 +228,41 @@ fun NewsArticleCard(
                     modifier = Modifier.weight(1f, fill = false)
                 )
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isExpanded) "Collapse" else "Expand",
-                        tint = TextSecondary,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .padding(end = 4.dp)
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // TTS Listen / Play / Pause Button
+                    IconButton(
+                        onClick = onTtsClick,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                isTtsSpeaking -> Icons.Default.Pause
+                                isTtsPaused -> Icons.Default.PlayArrow
+                                else -> Icons.AutoMirrored.Filled.VolumeUp
+                            },
+                            contentDescription = if (isTtsSpeaking) "Pause Speech" else "Listen to News (TTS)",
+                            tint = if (isTtsSpeaking || isTtsPaused) RustPrimary else TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
 
+                    // Reader Mode Launch Button
+                    IconButton(
+                        onClick = onReaderModeClick,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ChromeReaderMode,
+                            contentDescription = "Reader Mode",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Bookmark Icon Button
                     IconButton(
                         onClick = onBookmarkClick,
                         modifier = Modifier.size(28.dp)
@@ -230,9 +271,16 @@ fun NewsArticleCard(
                             imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Remove Bookmark" else "Save Article",
                             tint = if (isSaved) RustPrimary else TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
+
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
@@ -306,29 +354,59 @@ fun NewsArticleCard(
                 )
             }
 
-            // When expanded: "Read full article" action button
+            // When expanded: Action buttons ("Reader Mode" & "Read web article")
             if (isExpanded) {
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onReadFullArticleClick,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "Read full article",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        imageVector = Icons.Default.ArrowOutward,
-                        contentDescription = "Read full article",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    // Reader Mode Button
+                    Button(
+                        onClick = onReaderModeClick,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RustSoftBg),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ChromeReaderMode,
+                            contentDescription = "Reader Mode",
+                            tint = RustPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Reader Mode",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = RustPrimary
+                        )
+                    }
+
+                    // Web Article Button
+                    Button(
+                        onClick = onReadFullArticleClick,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RustPrimary),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1.1f)
+                    ) {
+                        Text(
+                            text = "Full Article",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowOutward,
+                            contentDescription = "Read full article",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -336,14 +414,17 @@ fun NewsArticleCard(
 }
 
 /**
- * Composable function to display a list of news articles.
+ * Composable function to display a list of news articles with TTS & Reader Mode support.
  */
 @Composable
 fun NewsCardView(
     articles: List<Article>,
     navController: NavController,
+    ttsState: TtsState = TtsState(),
     isArticleSaved: (Article) -> Boolean = { false },
-    onBookmarkClick: (Article) -> Unit = {}
+    onBookmarkClick: (Article) -> Unit = {},
+    onTtsClick: (Article) -> Unit = {},
+    onReaderModeClick: (Article) -> Unit = {}
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -351,10 +432,18 @@ fun NewsCardView(
         modifier = Modifier.fillMaxSize()
     ) {
         items(articles, key = { it.url ?: it.title.hashCode().toString() }) { article ->
+            val articleId = article.url ?: article.title.hashCode().toString()
+            val isThisSpeaking = ttsState.currentId == articleId && ttsState.status == TtsStatus.SPEAKING
+            val isThisPaused = ttsState.currentId == articleId && ttsState.status == TtsStatus.PAUSED
+
             NewsArticleCard(
                 article = article,
                 isSaved = isArticleSaved(article),
+                isTtsSpeaking = isThisSpeaking,
+                isTtsPaused = isThisPaused,
                 onBookmarkClick = { onBookmarkClick(article) },
+                onTtsClick = { onTtsClick(article) },
+                onReaderModeClick = { onReaderModeClick(article) },
                 onReadFullArticleClick = {
                     if (!article.url.isNullOrBlank()) {
                         val encodedUrl = android.util.Base64.encodeToString(
