@@ -47,6 +47,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,11 +65,15 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.support.tech.newsaibuddy.data.api.ResourceState
+import com.support.tech.newsaibuddy.domain.model.Article
 import com.support.tech.newsaibuddy.domain.model.NewsCategory
 import com.support.tech.newsaibuddy.ui.components.AppLoader
 import com.support.tech.newsaibuddy.ui.components.EmptyStateComponent
 import com.support.tech.newsaibuddy.ui.components.NetworkErrorComponent
 import com.support.tech.newsaibuddy.ui.components.NewsCardView
+import com.support.tech.newsaibuddy.ui.components.ReaderContent
+import com.support.tech.newsaibuddy.ui.components.ReaderModeSheet
+import com.support.tech.newsaibuddy.ui.components.TtsControlBar
 import com.support.tech.newsaibuddy.ui.screens.profile.ProfileScreen
 import com.support.tech.newsaibuddy.ui.theme.CardBackground
 import com.support.tech.newsaibuddy.ui.theme.CardBorder
@@ -89,7 +97,10 @@ fun NewsScreen(
     val pagerState = rememberPagerState(initialPage = 0) { categories.size }
     val coroutineScope = rememberCoroutineScope()
     val uiState by newsViewModel.uiState.collectAsState()
+    val ttsState by newsViewModel.ttsState.collectAsState()
     val categoryListState = rememberLazyListState()
+
+    var activeReaderContent by remember { mutableStateOf<ReaderContent?>(null) }
 
     // 0 = News, 1 = Saved, 2 = Chat Bot, 3 = Profile
     var selectedBottomNavIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -101,243 +112,251 @@ fun NewsScreen(
         newsViewModel.getNewsByCategory(category)
     }
 
-    Scaffold(
-        containerColor = ScreenBackground,
-        bottomBar = {
-            FigmaBottomNavigation(
-                selectedIndex = selectedBottomNavIndex,
-                onItemSelected = { index ->
-                    if (index == 2) {
-                        navController.navigate("chatBotScreen")
-                    } else {
-                        selectedBottomNavIndex = index
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = ScreenBackground,
+            bottomBar = {
+                FigmaBottomNavigation(
+                    selectedIndex = selectedBottomNavIndex,
+                    onItemSelected = { index ->
+                        if (index == 2) {
+                            navController.navigate("chatBotScreen")
+                        } else {
+                            selectedBottomNavIndex = index
+                        }
                     }
-                }
-            )
-        }
-    ) { paddingValues ->
-
-        when (selectedBottomNavIndex) {
-            3 -> {
-                // PROFILE VIEW
-                ProfileScreen(
-                    authViewModel = authViewModel,
-                    savedArticleCount = uiState.savedArticles.size,
-                    onClearSavedArticles = { newsViewModel.clearAllSavedArticles() },
-                    modifier = Modifier.padding(paddingValues)
                 )
             }
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .statusBarsPadding()
-                ) {
-                    // Top Section (Eyebrow, Title, Search button)
+        ) { paddingValues ->
+
+            when (selectedBottomNavIndex) {
+                3 -> {
+                    // PROFILE VIEW
+                    ProfileScreen(
+                        authViewModel = authViewModel,
+                        savedArticleCount = uiState.savedArticles.size,
+                        onClearSavedArticles = { newsViewModel.clearAllSavedArticles() },
+                        modifier = Modifier.padding(paddingValues)
+                    )
+                }
+                else -> {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                            .statusBarsPadding()
                     ) {
-                        Text(
-                            text = "A WORLD IN FOCUS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.6.sp,
-                            color = RustPrimary
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        // Top Section (Eyebrow, Title, Search button)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
                         ) {
                             Text(
-                                text = "The news brief.",
-                                fontSize = 32.sp,
+                                text = "A WORLD IN FOCUS",
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Serif,
-                                color = TextPrimary
+                                letterSpacing = 1.6.sp,
+                                color = RustPrimary
                             )
 
-                            // Rounded Search Button
-                            Surface(
-                                onClick = { newsViewModel.toggleSearchActive() },
-                                shape = RoundedCornerShape(12.dp),
-                                color = CardBackground,
-                                border = BorderStroke(1.dp, CardBorder),
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = if (uiState.isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                                        contentDescription = "Search",
-                                        tint = TextPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
+                            Spacer(modifier = Modifier.height(4.dp))
 
-                        // Search field when active
-                        if (uiState.isSearchActive) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            OutlinedTextField(
-                                value = uiState.searchQuery,
-                                onValueChange = { newsViewModel.setSearchQuery(it) },
-                                placeholder = { Text("Search stories...", color = TextMuted) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = TextPrimary,
-                                    unfocusedTextColor = TextPrimary,
-                                    cursorColor = RustPrimary,
-                                    focusedBorderColor = RustPrimary,
-                                    unfocusedBorderColor = CardBorder,
-                                    focusedContainerColor = CardBackground,
-                                    unfocusedContainerColor = CardBackground
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    if (selectedBottomNavIndex == 1) {
-                        // SAVED STORIES VIEW
-                        Column(modifier = Modifier.fillMaxSize()) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Saved Stories",
+                                    text = "The news brief.",
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Serif,
+                                    color = TextPrimary
+                                )
+
+                                // Rounded Search Button
+                                Surface(
+                                    onClick = { newsViewModel.toggleSearchActive() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = CardBackground,
+                                    border = BorderStroke(1.dp, CardBorder),
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = if (uiState.isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                            contentDescription = "Search",
+                                            tint = TextPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Search field when active
+                            if (uiState.isSearchActive) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = uiState.searchQuery,
+                                    onValueChange = { newsViewModel.setSearchQuery(it) },
+                                    placeholder = { Text("Search stories...", color = TextMuted) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary,
+                                        cursorColor = RustPrimary,
+                                        focusedBorderColor = RustPrimary,
+                                        unfocusedBorderColor = CardBorder,
+                                        focusedContainerColor = CardBackground,
+                                        unfocusedContainerColor = CardBackground
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        if (selectedBottomNavIndex == 1) {
+                            // SAVED STORIES VIEW
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Saved Stories",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "${uiState.savedArticles.size} stories",
+                                        fontSize = 13.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+
+                                if (uiState.savedArticles.isEmpty()) {
+                                    EmptyStateComponent("No saved articles yet. Bookmark stories to read them here!")
+                                } else {
+                                    NewsCardView(
+                                        articles = uiState.savedArticles,
+                                        navController = navController,
+                                        ttsState = ttsState,
+                                        isArticleSaved = { true },
+                                        onBookmarkClick = { newsViewModel.toggleBookmark(it) },
+                                        onTtsClick = { newsViewModel.playOrPauseTts(it) },
+                                        onReaderModeClick = { activeReaderContent = it.toReaderContent() }
+                                    )
+                                }
+                            }
+                        } else {
+                            // NEWS STORIES VIEW (selectedBottomNavIndex == 0)
+
+                            // Category Chips (Horizontal Scrollable with auto-scroll to view)
+                            val activeCategoryIndex = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
+
+                            LazyRow(
+                                state = categoryListState,
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                itemsIndexed(categories) { index, category ->
+                                    val isSelected = activeCategoryIndex == index
+                                    CategoryChip(
+                                        label = category.displayName,
+                                        isSelected = isSelected,
+                                        onClick = {
+                                            newsViewModel.getNewsByCategory(category.categoryValue)
+                                            coroutineScope.launch {
+                                                categoryListState.animateScrollToItem(index)
+                                                pagerState.animateScrollToPage(index)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Section Header (e.g., "Business" + "4 stories")
+                            val currentCategory = categories[activeCategoryIndex]
+                            val resourceState = uiState.getStateForCategory(currentCategory.categoryValue)
+                            val articleCount = (resourceState as? ResourceState.Success)?.data?.size ?: 0
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = currentCategory.displayName,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary
                                 )
+
                                 Text(
-                                    text = "${uiState.savedArticles.size} stories",
+                                    text = if (resourceState is ResourceState.Success) "$articleCount stories" else "",
                                     fontSize = 13.sp,
                                     color = TextSecondary
                                 )
                             }
 
-                            if (uiState.savedArticles.isEmpty()) {
-                                EmptyStateComponent("No saved articles yet. Bookmark stories to read them here!")
-                            } else {
-                                NewsCardView(
-                                    articles = uiState.savedArticles,
-                                    navController = navController,
-                                    isArticleSaved = { true },
-                                    onBookmarkClick = { newsViewModel.toggleBookmark(it) }
-                                )
-                            }
-                        }
-                    } else {
-                        // NEWS STORIES VIEW (selectedBottomNavIndex == 0)
+                            // Paged News Content
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize()
+                            ) { page ->
+                                val pageCategory = categories[page].categoryValue
+                                val state = uiState.getStateForCategory(pageCategory)
 
-                        // Category Chips (Horizontal Scrollable with auto-scroll to view)
-                        val activeCategoryIndex = if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
+                                when (state) {
+                                    is ResourceState.Loading -> AppLoader()
+                                    is ResourceState.Success -> {
+                                        val filteredArticles = if (uiState.searchQuery.isBlank()) {
+                                            state.data
+                                        } else {
+                                            state.data.filter { article ->
+                                                article.title?.contains(uiState.searchQuery, ignoreCase = true) == true ||
+                                                        article.description?.contains(uiState.searchQuery, ignoreCase = true) == true ||
+                                                        article.sourceName?.contains(uiState.searchQuery, ignoreCase = true) == true
+                                            }
+                                        }
 
-                        LazyRow(
-                            state = categoryListState,
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            itemsIndexed(categories) { index, category ->
-                                val isSelected = activeCategoryIndex == index
-                                CategoryChip(
-                                    label = category.displayName,
-                                    isSelected = isSelected,
-                                    onClick = {
-                                        newsViewModel.getNewsByCategory(category.categoryValue)
-                                        coroutineScope.launch {
-                                            categoryListState.animateScrollToItem(index)
-                                            pagerState.animateScrollToPage(index)
+                                        if (filteredArticles.isEmpty()) {
+                                            EmptyStateComponent("No stories found in this category")
+                                        } else {
+                                            NewsCardView(
+                                                articles = filteredArticles,
+                                                navController = navController,
+                                                ttsState = ttsState,
+                                                isArticleSaved = { uiState.isArticleSaved(it) },
+                                                onBookmarkClick = { newsViewModel.toggleBookmark(it) },
+                                                onTtsClick = { newsViewModel.playOrPauseTts(it) },
+                                                onReaderModeClick = { activeReaderContent = it.toReaderContent() }
+                                            )
                                         }
                                     }
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Section Header (e.g., "Business" + "4 stories")
-                        val currentCategory = categories[activeCategoryIndex]
-                        val resourceState = uiState.getStateForCategory(currentCategory.categoryValue)
-                        val articleCount = (resourceState as? ResourceState.Success)?.data?.size ?: 0
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = currentCategory.displayName,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-
-                            Text(
-                                text = if (resourceState is ResourceState.Success) "$articleCount stories" else "",
-                                fontSize = 13.sp,
-                                color = TextSecondary
-                            )
-                        }
-
-                        // Paged News Content
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize()
-                        ) { page ->
-                            val pageCategory = categories[page].categoryValue
-                            val state = uiState.getStateForCategory(pageCategory)
-
-                            when (state) {
-                                is ResourceState.Loading -> AppLoader()
-                                is ResourceState.Success -> {
-                                    val filteredArticles = if (uiState.searchQuery.isBlank()) {
-                                        state.data
-                                    } else {
-                                        state.data.filter { article ->
-                                            article.title?.contains(uiState.searchQuery, ignoreCase = true) == true ||
-                                                    article.description?.contains(uiState.searchQuery, ignoreCase = true) == true ||
-                                                    article.sourceName?.contains(uiState.searchQuery, ignoreCase = true) == true
-                                        }
-                                    }
-
-                                    if (filteredArticles.isEmpty()) {
-                                        EmptyStateComponent("No stories found in this category")
-                                    } else {
-                                        NewsCardView(
-                                            articles = filteredArticles,
-                                            navController = navController,
-                                            isArticleSaved = { uiState.isArticleSaved(it) },
-                                            onBookmarkClick = { newsViewModel.toggleBookmark(it) }
+                                    is ResourceState.Error -> {
+                                        val categoryKey = categories[page].categoryValue
+                                        NetworkErrorComponent(
+                                            message = state.error.ifBlank { "No internet connection. Please check your network and try again." },
+                                            onRetry = {
+                                                newsViewModel.getNewsByCategory(categoryKey, forceRefresh = true)
+                                            }
                                         )
                                     }
-                                }
-                                is ResourceState.Error -> {
-                                    val categoryKey = categories[page].categoryValue
-                                    NetworkErrorComponent(
-                                        message = state.error.ifBlank { "No internet connection. Please check your network and try again." },
-                                        onRetry = {
-                                            newsViewModel.getNewsByCategory(categoryKey, forceRefresh = true)
-                                        }
-                                    )
                                 }
                             }
                         }
@@ -345,7 +364,57 @@ fun NewsScreen(
                 }
             }
         }
+
+        // Floating Audio Playback Controls Bar
+        TtsControlBar(
+            ttsState = ttsState,
+            onPlayPauseClick = {
+                if (ttsState.status == com.support.tech.newsaibuddy.utils.TtsStatus.SPEAKING) {
+                    newsViewModel.pauseTts()
+                } else {
+                    newsViewModel.resumeTts()
+                }
+            },
+            onStopClick = { newsViewModel.stopTts() },
+            onSpeedSelected = { rate -> newsViewModel.setTtsSpeechRate(rate) },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 60.dp)
+        )
+
+        // Reader Mode Modal Bottom Sheet
+        if (activeReaderContent != null) {
+            ReaderModeSheet(
+                content = activeReaderContent,
+                ttsState = ttsState,
+                onDismiss = { activeReaderContent = null },
+                onPlayPauseTts = { id, text, title ->
+                    newsViewModel.playTts(id, text, title)
+                },
+                onStopTts = { newsViewModel.stopTts() }
+            )
+        }
     }
+}
+
+private fun Article.toReaderContent(): ReaderContent {
+    val bodyText = listOfNotNull(description, content)
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString("\n\n")
+        .ifBlank { title.orEmpty() }
+
+    return ReaderContent(
+        id = url ?: title.hashCode().toString(),
+        title = title.orEmpty(),
+        subtitle = description,
+        sourceName = sourceName,
+        author = author,
+        publishedAt = publishedAt,
+        imageUrl = urlToImage,
+        body = bodyText,
+        isChatBotResponse = false
+    )
 }
 
 /**
