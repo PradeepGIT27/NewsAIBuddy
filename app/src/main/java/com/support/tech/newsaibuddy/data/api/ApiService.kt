@@ -16,7 +16,9 @@ interface ApiService {
      */
     @GET("v2/top-headlines")
     suspend fun getTopHeadlinesBasedOnCountry(
-        @Query("country") country: String
+        @Query("country") country: String,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 20
     ): Response<NewsResponseDto>
 
     /**
@@ -25,6 +27,8 @@ interface ApiService {
      */
     @GET("v2/top-headlines")
     suspend fun getTopHeadlinesBasedOnCategory(
-        @Query("category") category: String
+        @Query("category") category: String,
+        @Query("page") page: Int = 1,
+        @Query("pageSize") pageSize: Int = 20
     ): Response<NewsResponseDto>
 }

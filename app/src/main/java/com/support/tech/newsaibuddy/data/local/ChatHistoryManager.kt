@@ -1,23 +1,18 @@
 package com.support.tech.newsaibuddy.data.local
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.room.Room
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessage
 import com.support.tech.newsaibuddy.data.entity.ChatBotMessageSender
+import com.support.tech.newsaibuddy.data.local.db.AppDatabase
+import com.support.tech.newsaibuddy.data.local.db.ChatDao
+import com.support.tech.newsaibuddy.data.local.db.ChatMessageEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
-private val Context.chatHistoryDataStore: DataStore<Preferences> by preferencesDataStore(name = "chat_history")
-
-/**
- * Serializable chat message entry for persistence in DataStore.
- */
 @Serializable
 data class SerializableChatMessage(
     val id: String = "",
@@ -27,9 +22,6 @@ data class SerializableChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-/**
- * Data class representing a saved conversation thread in local storage.
- */
 @Serializable
 data class ChatConversation(
     val id: String,
@@ -56,9 +48,6 @@ data class ChatConversation(
     }
 }
 
-/**
- * Converts a domain [ChatBotMessage] into a [SerializableChatMessage].
- */
 fun ChatBotMessage.toSerializable(): SerializableChatMessage {
     return SerializableChatMessage(
         id = id,
@@ -70,64 +59,55 @@ fun ChatBotMessage.toSerializable(): SerializableChatMessage {
 }
 
 /**
- * Manages chat history persistence using DataStore Preferences.
- * Stores conversation threads locally on device so they survive app restarts.
+ * Manages chat history persistence using Room Database via [ChatDao] on [Dispatchers.IO].
  */
-class ChatHistoryManager(private val context: Context) {
+class ChatHistoryManager(private val chatDao: ChatDao) {
 
-    companion object {
-        private val KEY_CONVERSATIONS = stringPreferencesKey("saved_conversations_json")
+    constructor(context: Context) : this(
+        Room.databaseBuilder(
+            context.applicationContext,
+            AppDatabase::class.java,
+            "news_ai_buddy.db"
+        ).fallbackToDestructiveMigration().build().chatDao()
+    )
+
+    val defaultMessages: Flow<List<ChatBotMessage>> = chatDao.getMessagesForConversation("default_conversation").map { entities ->
+        entities.map { it.toDomain() }
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
-
-    val conversations: Flow<List<ChatConversation>> = context.chatHistoryDataStore.data.map { prefs ->
-        val jsonString = prefs[KEY_CONVERSATIONS] ?: "[]"
-        try {
-            json.decodeFromString<List<ChatConversation>>(jsonString)
-                .sortedByDescending { it.updatedAt }
-        } catch (_: Exception) {
+    val conversations: Flow<List<ChatConversation>> = defaultMessages.map { domainMsgs ->
+        if (domainMsgs.isEmpty()) {
             emptyList()
+        } else {
+            val serializableMsgs = domainMsgs.map { it.toSerializable() }
+            val firstUserMsg = domainMsgs.firstOrNull { it.participant == ChatBotMessageSender.USER }?.text ?: "Chat Session"
+            val title = if (firstUserMsg.length > 30) firstUserMsg.take(28) + "..." else firstUserMsg
+            listOf(
+                ChatConversation(
+                    id = "default_conversation",
+                    title = title,
+                    updatedAt = domainMsgs.lastOrNull()?.timestamp ?: System.currentTimeMillis(),
+                    messages = serializableMsgs
+                )
+            )
         }
     }
 
-    suspend fun saveOrUpdateConversation(conversation: ChatConversation) {
-        context.chatHistoryDataStore.edit { prefs ->
-            val currentJson = prefs[KEY_CONVERSATIONS] ?: "[]"
-            val currentList = try {
-                json.decodeFromString<MutableList<ChatConversation>>(currentJson)
-            } catch (_: Exception) {
-                mutableListOf()
-            }
-
-            val index = currentList.indexOfFirst { it.id == conversation.id }
-            if (index >= 0) {
-                currentList[index] = conversation
-            } else {
-                currentList.add(0, conversation)
-            }
-
-            prefs[KEY_CONVERSATIONS] = json.encodeToString(currentList)
-        }
+    suspend fun saveMessages(messages: List<ChatBotMessage>, conversationId: String = "default_conversation") = withContext(Dispatchers.IO) {
+        val entities = messages.map { ChatMessageEntity.fromDomain(it, conversationId) }
+        chatDao.insertMessages(entities)
     }
 
-    suspend fun deleteConversation(conversationId: String) {
-        context.chatHistoryDataStore.edit { prefs ->
-            val currentJson = prefs[KEY_CONVERSATIONS] ?: "[]"
-            val currentList = try {
-                json.decodeFromString<MutableList<ChatConversation>>(currentJson)
-            } catch (_: Exception) {
-                mutableListOf()
-            }
-
-            currentList.removeAll { it.id == conversationId }
-            prefs[KEY_CONVERSATIONS] = json.encodeToString(currentList)
-        }
+    suspend fun saveOrUpdateConversation(conversation: ChatConversation) = withContext(Dispatchers.IO) {
+        val domainMessages = conversation.toDomainMessages()
+        saveMessages(domainMessages, conversation.id)
     }
 
-    suspend fun clearAllHistory() {
-        context.chatHistoryDataStore.edit { prefs ->
-            prefs[KEY_CONVERSATIONS] = "[]"
-        }
+    suspend fun deleteConversation(conversationId: String) = withContext(Dispatchers.IO) {
+        chatDao.clearConversation(conversationId)
+    }
+
+    suspend fun clearAllHistory() = withContext(Dispatchers.IO) {
+        chatDao.clearConversation("default_conversation")
     }
 }

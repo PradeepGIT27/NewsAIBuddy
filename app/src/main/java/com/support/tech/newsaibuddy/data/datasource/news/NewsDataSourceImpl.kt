@@ -12,11 +12,11 @@ class NewsDataSourceImpl @Inject constructor(
     private val apiService: ApiService
 ) : NewsDataSource {
 
-    override suspend fun getTopHeadlinesBasedOnCountry(country: String): Response<NewsResponseDto> {
-        return apiService.getTopHeadlinesBasedOnCountry(country)
+    override suspend fun getTopHeadlinesBasedOnCountry(country: String, page: Int, pageSize: Int): Response<NewsResponseDto> {
+        return apiService.getTopHeadlinesBasedOnCountry(country, page, pageSize)
     }
 
-    override suspend fun getTopHeadlineBasedOnCategory(category: String): Response<NewsResponseDto> {
-        return apiService.getTopHeadlinesBasedOnCategory(category)
+    override suspend fun getTopHeadlineBasedOnCategory(category: String, page: Int, pageSize: Int): Response<NewsResponseDto> {
+        return apiService.getTopHeadlinesBasedOnCategory(category, page, pageSize)
     }
 }
