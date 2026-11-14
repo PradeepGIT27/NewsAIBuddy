@@ -122,3 +122,15 @@
 -keep class com.google.gson.** { *; }
 -keepclassmembers class com.google.gson.** { *; }
 -dontwarn com.google.gson.**
+
+# Android TextToSpeech & SpeechRecognizer
+-keep class android.speech.tts.** { *; }
+-keepclassmembers class android.speech.tts.** { *; }
+-keep class android.speech.** { *; }
+-keepclassmembers class android.speech.** { *; }
+-keep class * extends android.speech.tts.UtteranceProgressListener { *; }
+-keepclassmembers class * extends android.speech.tts.UtteranceProgressListener { *; }
+-keep class com.support.tech.newsaibuddy.utils.TtsManager { *; }
+-keepclassmembers class com.support.tech.newsaibuddy.utils.TtsManager { *; }
+-keep class com.support.tech.newsaibuddy.utils.SpeechRecognizerManager { *; }
+-keepclassmembers class com.support.tech.newsaibuddy.utils.SpeechRecognizerManager { *; }
